@@ -2,6 +2,9 @@
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 
+#include "../include/common.h"
+#include "maps.bpf.h"
+
 #define ETH_P_IP 0x0800
 #define ETH_P_IPV6 0x86DD
 #define IPPROTO_ICMP 1
