@@ -3,5 +3,6 @@
 
 #include "../include/common.h"
 void load_and_attach_firewall(FirewallConfig config);
+void reload_config(FirewallConfig config);
 
 #endif

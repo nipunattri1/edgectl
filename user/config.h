@@ -34,25 +34,23 @@ static int firewall_ini_handler(void *user, const char *section,
       strncpy(config->device, value, sizeof(config->device) - 1);
     }
   } else if (strcmp(section, "rules") == 0) {
-    if (strcmp(name, "allow_proto") == 0) {
-      config->allow_mask = parse_protocols(value);
-    } else if (strcmp(name, "block_proto") == 0) {
+    if (strcmp(name, "block_proto") == 0) {
       config->block_mask = parse_protocols(value);
     }
   }
   return 1;
 }
 
-static void print_protocols(uint8_t mask) {
-  if (mask & PROTO_TCP)
-    printf("TCP ");
-  if (mask & PROTO_UDP)
-    printf("UDP ");
-  if (mask & PROTO_ICMP)
-    printf("ICMP ");
-  if (mask == PROTO_NONE)
-    printf("None");
-  printf("\n");
-}
+// static void print_protocols(uint8_t mask) {
+//   if (mask & PROTO_TCP)
+//     printf("TCP ");
+//   if (mask & PROTO_UDP)
+//     printf("UDP ");
+//   if (mask & PROTO_ICMP)
+//     printf("ICMP ");
+//   if (mask == PROTO_NONE)
+//     printf("None");
+//   printf("\n");
+// }
 
 #endif

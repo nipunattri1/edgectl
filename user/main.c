@@ -29,6 +29,7 @@ int main(int argc, char **argv) {
     return 0;
   } else if (strcmp(argv[1], "reload") == 0) {
     // return do_config(argc - 1, argv + 1);
+    reload_config(config);
     return 1;
   } else {
     fprintf(stderr, "Unknown command: %s\n", argv[1]);

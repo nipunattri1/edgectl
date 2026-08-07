@@ -1,3 +1,4 @@
+#include <bpf/bpf.h>
 #include <linux/bpf.h>
 #include <linux/types.h>
 
@@ -24,9 +25,9 @@ void load_and_attach_firewall(FirewallConfig config) {
 
   mkdir(PIN_DIR, 0777);
 
-  ifindex = if_nametoindex("eth0");
+  ifindex = if_nametoindex(config.device);
   if (ifindex == 0) {
-    fprintf(stderr, "Error getting ifindex");
+    fprintf(stderr, "Error getting ifindex\n");
     exit(1);
   }
 
@@ -63,4 +64,27 @@ void load_and_attach_firewall(FirewallConfig config) {
 cleanup:
   firewall_bpf__destroy(skel);
   exit(err);
+}
+
+void reload_config(FirewallConfig config) {
+  int map_fd = bpf_obj_get(MAP_PATH);
+
+  if (map_fd < 0) {
+    fprintf(stderr, "Error: Failed to fetch pinned map from %s: %s\n", MAP_PATH,
+            strerror(errno));
+    exit(1);
+  }
+  __u32 key = 0;
+  int res = bpf_map_update_elem(map_fd, &key, &config, BPF_ANY);
+
+  if (res < 0) {
+    fprintf(stderr, "Error: Failed to update map element: %s\n",
+            strerror(errno));
+    close(map_fd);
+    exit(1);
+  }
+
+  printf("Updated Config!\n");
+
+  close(map_fd);
 }
