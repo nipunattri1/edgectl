@@ -36,8 +36,8 @@ int main(int argc, char **argv) {
     }
 
     uint32_t ip_network = dst.s_addr;
-    uint32_t ip_host = ntohl(ip_network);
-    block_ip(ip_host);
+    // uint32_t ip_host = ntohl(ip_network);
+    block_ip(ip_network);
   } else if (strcmp(argv[1], "unblock") == 0) {
     struct in_addr dst;
     if (inet_pton(AF_INET, argv[2], &dst) != 1) {
@@ -46,8 +46,8 @@ int main(int argc, char **argv) {
     }
 
     uint32_t ip_network = dst.s_addr;
-    uint32_t ip_host = ntohl(ip_network);
-    unblock_ip(ip_host);
+    // uint32_t ip_host = ntohl(ip_network);
+    unblock_ip(ip_network);
   } else if (strcmp(argv[1], "list") == 0) {
     print_blocked_ips();
   } else {
