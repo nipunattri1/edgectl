@@ -2,7 +2,6 @@
 #include "../include/common.h"
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
-#include <linux/bpf.h>
 
 #include "maps.bpf.h"
 
@@ -33,7 +32,7 @@ static __always_inline int syn_attack_check(struct iphdr *iph,
   __u32 src_ip = iph->saddr;
   __u64 now = bpf_ktime_get_ns();
 
-  struct syn_tracker *tracker = bpf_map_lookup_elem(&syn_flood_map, &src_ip);
+  struct flood_tracker *tracker = bpf_map_lookup_elem(&syn_flood_map, &src_ip);
 
   if (tracker) {
     __u64 elapsed = now - tracker->timestamp;
@@ -51,9 +50,48 @@ static __always_inline int syn_attack_check(struct iphdr *iph,
     tracker->count++;
   } else {
     // New source IP
-    struct syn_tracker new_tracker = {.timestamp = now, .count = 1};
+    struct flood_tracker new_tracker = {.timestamp = now, .count = 1};
     bpf_map_update_elem(&syn_flood_map, &src_ip, &new_tracker, BPF_ANY);
   }
+}
+
+static __always_inline int udp_attack_check(struct iphdr *iph,
+                                            FirewallConfig *config) {
+  if (iph->protocol != IPPROTO_UDP)
+    return 0;
+
+  __u8 ip_hl = iph->ihl * 4;
+  if (ip_hl < sizeof(struct iphdr))
+    return 0;
+
+  struct udphdr *udph = (struct udphdr *)((void *)iph + ip_hl);
+
+  __u32 src_ip = iph->saddr;
+  __u64 now = bpf_ktime_get_ns();
+
+  struct flood_tracker *tracker = bpf_map_lookup_elem(&udp_flood_map, &src_ip);
+
+  if (tracker) {
+    __u64 elapsed = now - tracker->timestamp;
+
+    // Reset window after 1 second (1,000,000,000 ns)
+    if (elapsed > 1000000000ULL) {
+      tracker->timestamp = now;
+      tracker->count = 1;
+      return 0;
+    }
+
+    if (tracker->count >= config->udp_rate_limit) {
+      return 1;
+    }
+
+    tracker->count++;
+  } else {
+    struct flood_tracker new_tracker = {.timestamp = now, .count = 1};
+    bpf_map_update_elem(&udp_flood_map, &src_ip, &new_tracker, BPF_ANY);
+  }
+
+  return 0;
 }
 
 SEC("xdp")
@@ -100,6 +138,10 @@ int xdp_firewall(struct xdp_md *ctx) {
   }
 
   if (syn_attack_check(iph, config)) {
+    return XDP_DROP;
+  }
+
+  if (udp_attack_check(iph, config)) {
     return XDP_DROP;
   }
 

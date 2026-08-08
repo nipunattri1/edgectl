@@ -44,6 +44,8 @@ static int firewall_ini_handler(void *user, const char *section,
   } else if (strcmp(section, "ddos") == 0) {
     if (strcmp(name, "syn_rate_limit") == 0) {
       config->syn_rate_limit = atoi(value);
+    } else if (strcmp(name, "udp_rate_limit") == 0) {
+      config->syn_rate_limit = atoi(value);
     }
   }
 

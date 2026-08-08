@@ -28,6 +28,7 @@ typedef struct {
   char device[16];
   __u8 block_mask;
   __u32 syn_rate_limit;
+  __u32 udp_rate_limit;
 } FirewallConfig;
 
 struct ipv4_lpm_key {
