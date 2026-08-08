@@ -29,4 +29,9 @@ typedef struct {
   __u8 block_mask;
 } FirewallConfig;
 
+struct ipv4_lpm_key {
+  __u32 prefixlen;
+  __u32 ip;
+};
+
 #endif

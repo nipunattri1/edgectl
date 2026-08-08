@@ -2,7 +2,6 @@
 #include "../include/common.h"
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
-// #include <linux/bpf.h>
 
 #include "maps.bpf.h"
 
@@ -38,15 +37,23 @@ int xdp_firewall(struct xdp_md *ctx) {
   FirewallConfig *config = bpf_map_lookup_elem(&config_map, &config_key);
   if (config) {
     if (contains_proto(config->block_mask, iph->protocol)) {
-      bpf_printk("ICMP packet of size %d dropped", pkt_sz);
+      bpf_printk("packet of size %d dropped", pkt_sz);
       return XDP_DROP;
     }
   }
+  struct ipv4_lpm_key key = {
+      .prefixlen = 32,
+      .ip = iph->saddr,
+  };
 
-  __u32 *blocked = bpf_map_lookup_elem(&manual_blacklist_map, &iph->saddr);
+  __u32 *action = bpf_map_lookup_elem(&manual_blacklist_map, &key);
 
-  if (blocked) {
-    return XDP_DROP;
+  if (action) {
+    if (*action == 1) {
+      bpf_printk("Dropping packet from %pI4 (LPM match: block)", &iph->saddr);
+      return XDP_DROP;
+    }
+    return XDP_PASS;
   }
 
   return XDP_PASS;

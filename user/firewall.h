@@ -7,8 +7,8 @@
 void load_and_attach_firewall(FirewallConfig config);
 void reload_config(FirewallConfig config);
 
-void block_ip(__u32 ip);
-void unblock_ip(__u32 ip);
+void block_ip(__u32 ip, __u32 prefixlen);
+void unblock_ip(__u32 ip, __u32 prefixlen);
 
 void print_blocked_ips();
 

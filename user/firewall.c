@@ -1,3 +1,4 @@
+#include <arpa/inet.h>
 #include <bpf/bpf.h>
 #include <linux/bpf.h>
 #include <linux/types.h>
@@ -97,39 +98,50 @@ void reload_config(FirewallConfig config) {
   close(map_fd);
 }
 
-void block_ip(__u32 ip) {
+void block_ip(__u32 ip, __u32 prefixlen) {
   int map_fd = bpf_obj_get(MANUAL_BLOCK_MAP_PATH);
   if (map_fd < 0) {
     fprintf(stderr, "Error: Failed to fetch pinned map from %s: %s\n",
             MANUAL_BLOCK_MAP_PATH, strerror(errno));
     exit(1);
   }
+  struct ipv4_lpm_key key = {.prefixlen = prefixlen, .ip = ip};
+  __u32 set_val = 1;
 
+  if (bpf_map_update_elem(map_fd, &key, &set_val, BPF_ANY) < 0) {
+    fprintf(stderr, "Failed to block IP/subnet: %s\n", strerror(errno));
+  } else {
+    printf("Successfully blocked rule (val: 1).\n");
+  }
+
+  close(map_fd);
+}
+
+void unblock_ip(__u32 ip, __u32 prefixlen) {
+  int map_fd = bpf_obj_get(MANUAL_BLOCK_MAP_PATH);
+  if (map_fd < 0) {
+    fprintf(stderr, "Error: Failed to fetch pinned map from %s: %s\n",
+            MANUAL_BLOCK_MAP_PATH, strerror(errno));
+    exit(1);
+  }
+  struct ipv4_lpm_key key = {.prefixlen = prefixlen, .ip = ip};
   __u32 set_val = 0;
 
-  if (bpf_map_update_elem(map_fd, &ip, &set_val, BPF_NOEXIST) < 0) {
-    fprintf(stderr, "Failed to block IP: %s\n", strerror(errno));
+  if (bpf_map_update_elem(map_fd, &key, &set_val, BPF_ANY) < 0) {
+    fprintf(stderr, "Failed to unblock IP/subnet: %s\n", strerror(errno));
+  } else {
+    printf("Successfully unblocked rule (val: 0).\n");
   }
 
   close(map_fd);
 }
 
-void unblock_ip(__u32 ip) {
-  int map_fd = bpf_obj_get(MANUAL_BLOCK_MAP_PATH);
-  if (map_fd < 0) {
-    fprintf(stderr, "Error: Failed to fetch pinned map from %s: %s\n",
-            MANUAL_BLOCK_MAP_PATH, strerror(errno));
-    exit(1);
-  }
+struct lpm_entry {
+  struct ipv4_lpm_key key;
+  __u32 val;
+};
 
-  if (bpf_map_delete_elem(map_fd, &ip) < 0) {
-    fprintf(stderr, "Failed to Unblock IP: %s\n", strerror(errno));
-  }
-
-  close(map_fd);
-}
-
-__u32 *get_blocked_ips(size_t *count) {
+struct lpm_entry *get_blocked_ips(size_t *count) {
   *count = 0;
 
   int map_fd = bpf_obj_get(MANUAL_BLOCK_MAP_PATH);
@@ -140,31 +152,36 @@ __u32 *get_blocked_ips(size_t *count) {
   }
 
   size_t capacity = 16;
-  __u32 *ips = malloc(capacity * sizeof(__u32));
-  if (!ips) {
+  struct lpm_entry *entries = malloc(capacity * sizeof(struct lpm_entry));
+  if (!entries) {
     close(map_fd);
     return NULL;
   }
 
-  __u32 key, next_key;
+  struct ipv4_lpm_key key, next_key;
 
   int res = bpf_map_get_next_key(map_fd, NULL, &next_key);
 
   while (res == 0) {
-    // Expand array if full
     if (*count >= capacity) {
       capacity *= 2;
-      __u32 *tmp = realloc(ips, capacity * sizeof(__u32));
+      struct lpm_entry *tmp =
+          realloc(entries, capacity * sizeof(struct lpm_entry));
       if (!tmp) {
-        free(ips);
+        free(entries);
         close(map_fd);
         *count = 0;
         return NULL;
       }
-      ips = tmp;
+      entries = tmp;
     }
 
-    ips[*count] = next_key;
+    // Lookup the corresponding action value for the key
+    __u32 val = 0;
+    bpf_map_lookup_elem(map_fd, &next_key, &val);
+
+    entries[*count].key = next_key;
+    entries[*count].val = val;
     (*count)++;
 
     key = next_key;
@@ -174,26 +191,30 @@ __u32 *get_blocked_ips(size_t *count) {
   close(map_fd);
 
   if (*count == 0) {
-    free(ips);
+    free(entries);
     return NULL;
   }
 
-  return ips;
+  return entries;
 }
 
 void print_blocked_ips() {
-  size_t num_ips = 0;
-  __u32 *blocked_ips = get_blocked_ips(&num_ips);
+  size_t num_entries = 0;
+  struct lpm_entry *entries = get_blocked_ips(&num_entries);
 
-  if (blocked_ips) {
-    printf("Currently blocked IPs (%zu):\n", num_ips);
-    for (size_t i = 0; i < num_ips; i++) {
-      // Assuming IPv4 address stored in network byte order
-      unsigned char *bytes = (unsigned char *)&blocked_ips[i];
-      printf(" - %d.%d.%d.%d\n", bytes[0], bytes[1], bytes[2], bytes[3]);
+  if (entries) {
+    printf("Configured IP Rules (%zu):\n", num_entries);
+    for (size_t i = 0; i < num_entries; i++) {
+      char ip_str[INET_ADDRSTRLEN];
+      struct in_addr addr = {.s_addr = entries[i].key.ip};
+
+      if (inet_ntop(AF_INET, &addr, ip_str, sizeof(ip_str))) {
+        printf(" - %s/%u [%s]\n", ip_str, entries[i].key.prefixlen,
+               entries[i].val == 1 ? "BLOCKED" : "ALLOWED");
+      }
     }
-    free(blocked_ips);
+    free(entries);
   } else {
-    printf("No blocked IPs found or failed to read map.\n");
+    printf("No rules found or failed to read map.\n");
   }
 }

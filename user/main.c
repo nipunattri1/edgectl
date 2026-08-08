@@ -7,6 +7,8 @@
 #include <string.h>
 #include <arpa/inet.h>
 
+int parse_cidr(const char *arg, uint32_t *ip_out, uint32_t *prefixlen_out);
+
 int main(int argc, char **argv) {
 
   if (argc < 2) {
@@ -26,34 +28,72 @@ int main(int argc, char **argv) {
 
   if (strcmp(argv[1], "attach") == 0) {
     load_and_attach_firewall(config);
+
   } else if (strcmp(argv[1], "reload") == 0) {
     reload_config(config);
+
   } else if (strcmp(argv[1], "block") == 0) {
-    struct in_addr dst;
-    if (inet_pton(AF_INET, argv[2], &dst) != 1) {
-      fprintf(stderr, "Invalid IP address format.\n");
+    uint32_t ip_network;
+    uint32_t prefixlen;
+
+    if (parse_cidr(argv[2], &ip_network, &prefixlen) != 0) {
       return 1;
     }
 
-    uint32_t ip_network = dst.s_addr;
-    // uint32_t ip_host = ntohl(ip_network);
-    block_ip(ip_network);
+    block_ip(ip_network, prefixlen);
+   
+    printf("Successfully blocked %s (Prefix length: /%u)\n", argv[2],
+           prefixlen);
+
   } else if (strcmp(argv[1], "unblock") == 0) {
-    struct in_addr dst;
-    if (inet_pton(AF_INET, argv[2], &dst) != 1) {
-      fprintf(stderr, "Invalid IP address format.\n");
+    uint32_t ip_network;
+    uint32_t prefixlen;
+
+    if (parse_cidr(argv[2], &ip_network, &prefixlen) != 0) {
       return 1;
     }
 
-    uint32_t ip_network = dst.s_addr;
-    // uint32_t ip_host = ntohl(ip_network);
-    unblock_ip(ip_network);
+    unblock_ip(ip_network, prefixlen);
+    printf("Successfully unblocked %s (Prefix length: /%u)\n", argv[2],
+           prefixlen);
+
   } else if (strcmp(argv[1], "list") == 0) {
     print_blocked_ips();
+
   } else {
     fprintf(stderr, "Unknown command: %s\n", argv[1]);
     return 1;
   }
 
+  return 0;
+}
+
+int parse_cidr(const char *arg, uint32_t *ip_out, uint32_t *prefixlen_out) {
+  char ip_str[64];
+  strncpy(ip_str, arg, sizeof(ip_str) - 1);
+  ip_str[sizeof(ip_str) - 1] = '\0';
+
+  char *slash = strchr(ip_str, '/');
+  uint32_t prefixlen = 32;
+
+  if (slash != NULL) {
+    *slash = '\0';
+    prefixlen = atoi(slash + 1);
+
+    if (prefixlen > 32) {
+      fprintf(stderr, "Invalid prefix length /%u. Must be between 0 and 32.\n",
+              prefixlen);
+      return -1;
+    }
+  }
+
+  struct in_addr dst;
+  if (inet_pton(AF_INET, ip_str, &dst) != 1) {
+    fprintf(stderr, "Invalid IP address format: %s\n", ip_str);
+    return -1;
+  }
+
+  *ip_out = dst.s_addr;
+  *prefixlen_out = prefixlen;
   return 0;
 }

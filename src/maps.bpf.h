@@ -14,10 +14,11 @@ struct {
 } config_map SEC(".maps");
 
 struct {
-  __uint(type, BPF_MAP_TYPE_HASH);
-  __uint(max_entries, 10000);
-  __type(key, __u32);   // IP
-  __type(value, __u32); // hit counter
+  __uint(type, BPF_MAP_TYPE_LPM_TRIE);
+  __uint(max_entries, 256);
+  __type(key, struct ipv4_lpm_key); // IP
+  __type(value, __u32);             // hit counter
+  __uint(map_flags, BPF_F_NO_PREALLOC);
 } manual_blacklist_map SEC(".maps");
 
 #endif
