@@ -1,15 +1,20 @@
 #include "../include/vmlinux.h"
+#include "../include/common.h"
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
+#include <linux/bpf.h>
 
-#include "../include/common.h"
 #include "maps.bpf.h"
 
-#define ETH_P_IP 0x0800
-#define ETH_P_IPV6 0x86DD
-#define IPPROTO_ICMP 1
-#define IPPROTO_TCP 6
-#define IPPROTO_UDP 17
+int contains_proto(uint8_t mask, int proto) {
+  if (proto == 0)
+    return 0;
+
+  if (mask & (1 << proto))
+    return 1;
+
+  return 0;
+}
 
 SEC("xdp")
 int xdp_firewall(struct xdp_md *ctx) {
@@ -29,10 +34,21 @@ int xdp_firewall(struct xdp_md *ctx) {
   if ((void *)(iph + 1) > data_end)
     return XDP_PASS;
 
-  if (iph->protocol == IPPROTO_ICMP) {
-    bpf_printk("ICMP packet of size %d dropped", pkt_sz);
+  __u32 config_key = 0;
+  FirewallConfig *config = bpf_map_lookup_elem(&config_map, &config_key);
+  if (config) {
+    if (contains_proto(config->block_mask, iph->protocol)) {
+      bpf_printk("ICMP packet of size %d dropped", pkt_sz);
+      return XDP_DROP;
+    }
+  }
+
+  __u32 *blocked = bpf_map_lookup_elem(&manual_blacklist_map, &iph->saddr);
+
+  if (blocked) {
     return XDP_DROP;
   }
+
   return XDP_PASS;
 }
 

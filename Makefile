@@ -13,8 +13,8 @@ build/firewall.bpf.o: src/firewall.bpf.c include/vmlinux.h src/maps.bpf.h includ
 src/firewall.skel.h: build/firewall.bpf.o
 	$(BPFTOOL) gen skeleton $< > $@
 
-build/cli: user/main.c user/loader.c include/ini.c src/firewall.skel.h
-	$(CC) $(CFLAGS) -Iinclude -Isrc user/main.c user/loader.c include/ini.c -lbpf -lelf -lz -o $@
+build/cli: user/main.c user/firewall.c include/ini.c src/firewall.skel.h
+	$(CC) $(CFLAGS) -Iinclude -Isrc user/main.c user/firewall.c include/ini.c -lbpf -lelf -lz -o $@
 
 clean:
 	rm -rf include/vmlinux.h src/firewall.skel.h build/ user/cli

@@ -1,9 +1,13 @@
 #ifndef CONFIG_H_
 #define CONFIG_H_
+
 #include "../include/common.h"
+#include <linux/types.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <arpa/inet.h>
 
 static uint8_t parse_protocols(const char *str) {
   uint8_t mask = PROTO_NONE;
@@ -14,11 +18,11 @@ static uint8_t parse_protocols(const char *str) {
   char *token = strtok(buffer, ", ");
   while (token != NULL) {
     if (strcasecmp(token, "tcp") == 0)
-      mask |= PROTO_TCP;
+      mask |= (1 << IPPROTO_TCP);
     else if (strcasecmp(token, "udp") == 0)
-      mask |= PROTO_UDP;
+      mask |= (1 << IPPROTO_UDP);
     else if (strcasecmp(token, "icmp") == 0)
-      mask |= PROTO_ICMP;
+      mask |= (1 << IPPROTO_ICMP);
 
     token = strtok(NULL, ", ");
   }
@@ -40,17 +44,5 @@ static int firewall_ini_handler(void *user, const char *section,
   }
   return 1;
 }
-
-// static void print_protocols(uint8_t mask) {
-//   if (mask & PROTO_TCP)
-//     printf("TCP ");
-//   if (mask & PROTO_UDP)
-//     printf("UDP ");
-//   if (mask & PROTO_ICMP)
-//     printf("ICMP ");
-//   if (mask == PROTO_NONE)
-//     printf("None");
-//   printf("\n");
-// }
 
 #endif
