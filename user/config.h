@@ -41,7 +41,12 @@ static int firewall_ini_handler(void *user, const char *section,
     if (strcmp(name, "block_proto") == 0) {
       config->block_mask = parse_protocols(value);
     }
+  } else if (strcmp(section, "ddos") == 0) {
+    if (strcmp(name, "syn_rate_limit") == 0) {
+      config->syn_rate_limit = atoi(value);
+    }
   }
+
   return 1;
 }
 

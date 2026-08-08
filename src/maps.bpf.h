@@ -21,4 +21,15 @@ struct {
   __uint(map_flags, BPF_F_NO_PREALLOC);
 } manual_blacklist_map SEC(".maps");
 
+struct syn_tracker {
+  __u64 timestamp;
+  __u32 count;
+};
+
+struct {
+  __uint(type, BPF_MAP_TYPE_LRU_HASH);
+  __uint(max_entries, 10000);
+  __type(key, __u32); // IP
+  __type(value, struct syn_tracker);
+} syn_flood_map SEC(".maps");
 #endif

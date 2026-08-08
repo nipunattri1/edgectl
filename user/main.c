@@ -19,6 +19,7 @@ int main(int argc, char **argv) {
   FirewallConfig config = {
       .device = "lo",
       .block_mask = PROTO_NONE,
+      .syn_rate_limit = 100,
   };
 
   if (ini_parse("config/config.ini", firewall_ini_handler, &config) < 0) {
@@ -41,7 +42,7 @@ int main(int argc, char **argv) {
     }
 
     block_ip(ip_network, prefixlen);
-   
+
     printf("Successfully blocked %s (Prefix length: /%u)\n", argv[2],
            prefixlen);
 
