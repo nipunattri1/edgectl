@@ -28,3 +28,8 @@ sudo build/cli unblock 142.251.155.1
 # List all current rules
 sudo build/cli list
 ```
+
+# XDP Firewall - L3
+ - Rate Limiting & DDoS Mitigation
+ - included syn and udp flood detection.
+Figure out how to track packet rates and timestamps per source IP. If an IP exceeds a predefined threshold (e.g., > 100 packets per second), automatically drop subsequent packets from that source.

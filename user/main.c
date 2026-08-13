@@ -20,6 +20,7 @@ int main(int argc, char **argv) {
       .device = "lo",
       .block_mask = PROTO_NONE,
       .syn_rate_limit = 100,
+      .udp_rate_limit = 1000,
   };
 
   if (ini_parse("config/config.ini", firewall_ini_handler, &config) < 0) {
