@@ -34,7 +34,10 @@ sudo build/cli list
  - included syn and udp flood detection.
 Figure out how to track packet rates and timestamps per source IP. If an IP exceeds a predefined threshold (e.g., > 100 packets per second), automatically drop subsequent packets from that source.
 
+# XDP Firewall - 4
+ - Added Tracffic control based connection tracking to block all unwanted requests
+ - supports both upd and tcp packets
 
-## TODO:
+## TODO (couldn't do due to time constraints):
  - make sure no race conditons are there (ensuring atomic updates in maps common for cpus)
  - Metrics & analytics or even prometheus support
