@@ -32,6 +32,9 @@ int main(int argc, char **argv) {
   if (strcmp(argv[1], "attach") == 0) {
     load_and_attach_firewall(config);
 
+  } else if (strcmp(argv[1], "detach") == 0) {
+    unload_firewall(config.device);
+
   } else if (strcmp(argv[1], "reload") == 0) {
     reload_config(config);
 
