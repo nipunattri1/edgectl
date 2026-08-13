@@ -17,7 +17,7 @@ struct {
   __uint(type, BPF_MAP_TYPE_LPM_TRIE);
   __uint(max_entries, 256);
   __type(key, struct ipv4_lpm_key); // IP
-  __type(value, __u32);             // hit counter
+  __type(value, __u32);
   __uint(map_flags, BPF_F_NO_PREALLOC);
 } manual_blacklist_map SEC(".maps");
 
@@ -40,4 +40,23 @@ struct {
   __type(value, struct flood_tracker);
 } udp_flood_map SEC(".maps");
 
+struct connection_key {
+  __be32 src_ip;
+  __be32 dst_ip;
+  __be16 src_port;
+  __be16 dst_port;
+  __u8 proto;
+};
+
+struct connection_state {
+  __u64 last_seen_ns;
+  __u8 state;
+};
+
+struct {
+  __uint(type, BPF_MAP_TYPE_LRU_HASH);
+  __uint(max_entries, 65536);
+  __type(key, struct connection_key);
+  __type(value, struct connection_state);
+} ct_map SEC(".maps");
 #endif

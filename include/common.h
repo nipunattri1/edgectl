@@ -6,6 +6,9 @@
 #define ETH_P_IP 0x0800
 #define ETH_P_IPV6 0x86DD
 
+#define TC_ACT_OK 0
+#define TC_ACT_SHOT 2
+
 // #if defined(IPPROTO_ICMP)
 // #define IPPROTO_ICMP 1
 // #define IPPROTO_TCP 6
@@ -16,6 +19,7 @@
 #define CONFIG_MAP_PATH "/sys/fs/bpf/xdp_firewall/config_map"
 #define MANUAL_BLOCK_MAP_PATH "/sys/fs/bpf/xdp_firewall/manual_block_map"
 #define LINK_PATH "/sys/fs/bpf/xdp_firewall/prog_link"
+#define CT_MAP_PATH "/sys/fs/bpf/xdp_firewall/ct_map"
 
 #if defined(__bpf__) || defined(__BPF__)
 #include "vmlinux.h"
@@ -27,8 +31,10 @@
 typedef struct {
   char device[16];
   __u8 block_mask;
+  __u8 enable_tc;
   __u32 syn_rate_limit;
   __u32 udp_rate_limit;
+  __u64 udp_timeout_ns;
 } FirewallConfig;
 
 struct ipv4_lpm_key {

@@ -47,6 +47,15 @@ static int firewall_ini_handler(void *user, const char *section,
     } else if (strcmp(name, "udp_rate_limit") == 0) {
       config->syn_rate_limit = atoi(value);
     }
+  } else if (strcmp(section, "conn_track") == 0) {
+    if (strcmp(name, "enable") == 0) {
+      if (strcmp(value, "true") == 0)
+        config->enable_tc = 1;
+      else
+        config->enable_tc = 0;
+    } else if (strcmp(name, "udp_timeout_ns") == 0) {
+      config->udp_timeout_ns = atoi(value);
+    }
   }
 
   return 1;
