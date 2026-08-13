@@ -33,3 +33,8 @@ sudo build/cli list
  - Rate Limiting & DDoS Mitigation
  - included syn and udp flood detection.
 Figure out how to track packet rates and timestamps per source IP. If an IP exceeds a predefined threshold (e.g., > 100 packets per second), automatically drop subsequent packets from that source.
+
+
+## TODO:
+ - make sure no race conditons are there (ensuring atomic updates in maps common for cpus)
+ - Metrics & analytics or even prometheus support
