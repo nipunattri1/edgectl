@@ -5,48 +5,8 @@
 
 #include "maps.bpf.h"
 
-// TC Action codes
 #define TC_ACT_OK 0
 #define TC_ACT_SHOT 2
-
-#define PARSE_HEADERS(ctx_ptr, hdr_ptr)                                        \
-  ({                                                                           \
-    void *_data = (void *)(long)(ctx_ptr)->data;                               \
-    void *_data_end = (void *)(long)(ctx_ptr)->data_end;                       \
-    int _res = 0;                                                              \
-    struct ethhdr *_eth = _data;                                               \
-    if ((void *)(_eth + 1) > _data_end ||                                      \
-        _eth->h_proto != bpf_htons(ETH_P_IP))                                  \
-      _res = -1;                                                               \
-    else {                                                                     \
-      struct iphdr *_iph = (void *)(_eth + 1);                                 \
-      if ((void *)(_iph + 1) > _data_end)                                      \
-        _res = -1;                                                             \
-      else {                                                                   \
-        (hdr_ptr)->iph = _iph;                                                 \
-        __u8 _ip_hl = _iph->ihl * 4;                                           \
-        if (_ip_hl < sizeof(struct iphdr))                                     \
-          _res = -1;                                                           \
-        else {                                                                 \
-          void *_l4_ptr = (void *)_iph + _ip_hl;                               \
-          if (_iph->protocol == IPPROTO_TCP) {                                 \
-            if (_l4_ptr + sizeof(struct tcphdr) > _data_end)                   \
-              _res = -1;                                                       \
-            else                                                               \
-              (hdr_ptr)->tcph = (struct tcphdr *)_l4_ptr;                      \
-          } else if (_iph->protocol == IPPROTO_UDP) {                          \
-            if (_l4_ptr + sizeof(struct udphdr) > _data_end)                   \
-              _res = -1;                                                       \
-            else                                                               \
-              (hdr_ptr)->udph = (struct udphdr *)_l4_ptr;                      \
-          } else {                                                             \
-            (hdr_ptr)->l4_hdr = NULL;                                          \
-          }                                                                    \
-        }                                                                      \
-      }                                                                        \
-    }                                                                          \
-    _res;                                                                      \
-  })
 
 struct packet_headers {
   struct iphdr *iph;
@@ -57,24 +17,45 @@ struct packet_headers {
   };
 };
 
-int contains_proto(uint8_t mask, int proto) {
-  if (proto == 0)
+static __always_inline int contains_proto(__u64 mask, __u8 proto) {
+  if (proto == 0 || proto >= 64)
     return 0;
+  return (mask & (1ULL << proto)) ? 1 : 0;
+}
 
-  if (mask & (1 << proto))
-    return 1;
+static __always_inline int parse_headers(void *data, void *data_end,
+                                         struct packet_headers *hdr) {
+  struct ethhdr *eth = data;
+  if ((void *)(eth + 1) > data_end)
+    return -1;
+
+  if (eth->h_proto != bpf_htons(ETH_P_IP))
+    return -1;
+
+  struct iphdr *iph = (void *)(eth + 1);
+  if ((void *)(iph + 1) > data_end)
+    return -1;
+
+  hdr->iph = iph;
+  __u8 ip_hl = iph->ihl * 4;
+  if (ip_hl < sizeof(struct iphdr))
+    return -1;
+
+  void *l4_ptr = (void *)iph + ip_hl;
+
+  if (iph->protocol == IPPROTO_TCP) {
+    if (l4_ptr + sizeof(struct tcphdr) > data_end)
+      return -1;
+    hdr->tcph = (struct tcphdr *)l4_ptr;
+  } else if (iph->protocol == IPPROTO_UDP) {
+    if (l4_ptr + sizeof(struct udphdr) > data_end)
+      return -1;
+    hdr->udph = (struct udphdr *)l4_ptr;
+  } else {
+    hdr->l4_hdr = NULL;
+  }
 
   return 0;
-}
-
-static __always_inline int parse_headers(struct xdp_md *ctx,
-                                         struct packet_headers *hdr) {
-  return PARSE_HEADERS(ctx, hdr);
-}
-
-static __always_inline int parse_headers_skb(struct __sk_buff *skb,
-                                             struct packet_headers *hdr) {
-  return PARSE_HEADERS(skb, hdr);
 }
 
 static __always_inline int syn_attack_check(struct packet_headers *hdr,
@@ -106,8 +87,7 @@ static __always_inline int syn_attack_check(struct packet_headers *hdr,
     if (tracker->count >= config->syn_rate_limit) {
       return 1;
     }
-
-    tracker->count++;
+    __sync_fetch_and_add(&(tracker->count), 1);
   } else {
     struct flood_tracker new_tracker = {.timestamp = now, .count = 1};
     bpf_map_update_elem(&syn_flood_map, &src_ip, &new_tracker, BPF_ANY);
@@ -139,7 +119,7 @@ static __always_inline int udp_attack_check(struct packet_headers *hdr,
       return 1;
     }
 
-    tracker->count++;
+    __sync_fetch_and_add(&(tracker->count), 1);
   } else {
     struct flood_tracker new_tracker = {.timestamp = now, .count = 1};
     bpf_map_update_elem(&udp_flood_map, &src_ip, &new_tracker, BPF_ANY);
@@ -150,13 +130,14 @@ static __always_inline int udp_attack_check(struct packet_headers *hdr,
 
 SEC("xdp")
 int xdp_firewall(struct xdp_md *ctx) {
+  void *data = (void *)(long)ctx->data;
+  void *data_end = (void *)(long)ctx->data_end;
   struct packet_headers hdr = {0};
 
-  if (parse_headers(ctx, &hdr) < 0)
+  if (parse_headers(data, data_end, &hdr) < 0)
     return XDP_PASS;
 
-  void *data_end = (void *)(long)ctx->data_end;
-  int pkt_sz = data_end - (void *)(long)ctx->data;
+  int pkt_sz = data_end - data;
 
   __u32 config_key = 0;
   FirewallConfig *config = bpf_map_lookup_elem(&config_map, &config_key);
@@ -192,8 +173,11 @@ int xdp_firewall(struct xdp_md *ctx) {
 
 SEC("tc/egress")
 int handle_egress(struct __sk_buff *skb) {
+  void *data = (void *)(long)skb->data;
+  void *data_end = (void *)(long)skb->data_end;
   struct packet_headers hdr = {0};
-  if (parse_headers_skb(skb, &hdr) < 0)
+
+  if (parse_headers(data, data_end, &hdr) < 0)
     return TC_ACT_OK;
 
   struct connection_key key = {0};
@@ -221,8 +205,11 @@ int handle_egress(struct __sk_buff *skb) {
 
 SEC("tc/ingress")
 int handle_ingress(struct __sk_buff *skb) {
+  void *data = (void *)(long)skb->data;
+  void *data_end = (void *)(long)skb->data_end;
   struct packet_headers hdr = {0};
-  if (parse_headers_skb(skb, &hdr) < 0)
+
+  if (parse_headers(data, data_end, &hdr) < 0)
     return TC_ACT_OK;
 
   struct connection_key reverse_key = {0};
