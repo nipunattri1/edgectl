@@ -40,7 +40,7 @@ void load_and_attach_firewall(FirewallConfig config) {
 
   skel->links.xdp_firewall =
       bpf_program__attach_xdp(skel->progs.xdp_firewall, ifindex);
-  if (err) {
+  if (!skel->links.xdp_firewall) {
     fprintf(stderr, "Failed to attach BPF skeleton\n");
     goto cleanup;
   }
@@ -96,7 +96,7 @@ void load_and_attach_firewall(FirewallConfig config) {
   if (err) {
     fprintf(stderr, "Failed to pin map: %d\n", err);
     bpf_link__unpin(skel->links.xdp_firewall);
-    goto cleanup;
+    goto cleanup_pins;
   }
 
   err = bpf_map__pin(skel->maps.manual_blacklist_map, MANUAL_BLOCK_MAP_PATH);
@@ -104,7 +104,7 @@ void load_and_attach_firewall(FirewallConfig config) {
     fprintf(stderr, "Failed to pin map: %d\n", err);
     bpf_link__unpin(skel->links.xdp_firewall);
     bpf_map__unpin(skel->maps.config_map, CONFIG_MAP_PATH);
-    goto cleanup;
+    goto cleanup_pins;
   }
 
   err = bpf_map__pin(skel->maps.ct_map, CT_MAP_PATH);
@@ -113,8 +113,16 @@ void load_and_attach_firewall(FirewallConfig config) {
     bpf_link__unpin(skel->links.xdp_firewall);
     bpf_map__unpin(skel->maps.config_map, CONFIG_MAP_PATH);
     bpf_map__unpin(skel->maps.manual_blacklist_map, MANUAL_BLOCK_MAP_PATH);
-    goto cleanup;
+    goto cleanup_pins;
   }
+
+  fprintf(stdout, "Successfully attach the program");
+  return;
+cleanup_pins:
+  unlink(LINK_PATH);
+  unlink(CONFIG_MAP_PATH);
+  unlink(MANUAL_BLOCK_MAP_PATH);
+  unlink(CT_MAP_PATH);
 
 cleanup:
   if (ingress_attached) {
@@ -129,14 +137,8 @@ cleanup:
   }
   bpf_tc_hook_destroy(&ingress_hook);
 
-  // Unpin Maps/Links
-  unlink(LINK_PATH);
-  unlink(CONFIG_MAP_PATH);
-  unlink(MANUAL_BLOCK_MAP_PATH);
-  unlink(CT_MAP_PATH);
-
   firewall_bpf__destroy(skel);
-  exit(err ? 1 : 0);
+  exit(1);
 }
 
 void unload_firewall(const char *device_name) {
@@ -155,33 +157,14 @@ void unload_firewall(const char *device_name) {
     printf("Detached XDP\n");
   }
 
-  struct bpf_tc_hook ingress_hook = {
+  struct bpf_tc_hook hook = {
       .sz = sizeof(struct bpf_tc_hook),
       .ifindex = ifindex,
-      .attach_point = BPF_TC_INGRESS,
-  };
-  struct bpf_tc_opts ingress_opts = {
-      .sz = sizeof(struct bpf_tc_opts),
-      .flags = BPF_TC_F_REPLACE,
+      .attach_point = BPF_TC_INGRESS | BPF_TC_EGRESS,
   };
 
-  bpf_tc_detach(&ingress_hook, &ingress_opts);
-  bpf_tc_hook_destroy(&ingress_hook);
-  printf("Cleaned up TC Ingress hook\n");
-
-  struct bpf_tc_hook egress_hook = {
-      .sz = sizeof(struct bpf_tc_hook),
-      .ifindex = ifindex,
-      .attach_point = BPF_TC_EGRESS,
-  };
-  struct bpf_tc_opts egress_opts = {
-      .sz = sizeof(struct bpf_tc_opts),
-      .flags = BPF_TC_F_REPLACE,
-  };
-
-  bpf_tc_detach(&egress_hook, &egress_opts);
-  bpf_tc_hook_destroy(&egress_hook);
-  printf("Cleaned up TC Egress hook\n");
+  bpf_tc_hook_destroy(&hook);
+  printf("Cleaned up TC hooks\n");
 
   printf("Unpinning BPF objects from %s...\n", PIN_DIR);
   unlink(LINK_PATH);
