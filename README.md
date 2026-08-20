@@ -161,3 +161,29 @@ sudo build/cli list
 * Matches incoming packets against existing sessions in `ct_map`.
 * Enforces `udp_timeout_ns` session expiration logic.
 * Drops non-tracked stateful ingress traffic (`TC_ACT_SHOT`).
+
+
+## pending stuff (extra, not in task)
+**1. Dynamic Rule Management & Policy Engine**
+
+* **Port-Based Rules:** Expand XDP filtering to block or allow specific destination ports or port ranges alongside protocol checks.
+* **Geofencing / Country Blocking:** Integrate MaxMind GeoIP maps directly into eBPF to drop traffic originating from specific ASN or country codes.
+* **Dynamic Whitelisting:** Implement a priority-based rule set where whitelisted IPs bypass all rate limits and packet drops.
+
+**2. Advanced Security & Anomaly Detection**
+
+* **TCP SYN Cookies:** Implement stateless SYN cookie generation inside XDP to handle massive SYN floods without exhausting map memory.
+* **Deep Packet Inspection (DPI):** Parse HTTP headers or DNS queries in XDP/TC to block known malicious user-agents or DNS amplification vectors.
+* **Connection State Machine Expansion:** Track full TCP state transitions (`SYN`, `SYN-ACK`, `ESTABLISHED`, `FIN`, `RST`) rather than binary timestamp tracking.
+
+**3. Observability & Monitoring**
+
+* **Prometheus Metrics Exporter:** Expose kernel counters via an HTTP `/metrics` endpoint for real-time monitoring of drop reasons, throughput, and active connections.
+* **Grafana Dashboard:** Build a pre-configured Grafana dashboard visualizing live network traffic, drop rates per vector, and top offender IPs.
+* **eBPF Ring Buffer Event Logging:** Replace standard `bpf_printk` debug calls with high-performance `BPF_MAP_TYPE_RINGBUF` to send blocked packet metadata to user space in real time.
+
+**4. Architecture & Production Readiness**
+
+* **CO-RE (Compile Once – Run Everywhere):** Migrate to BPF CO-RE using `libbpf` and `bpftool` so the binary runs across different kernel versions without needing kernel headers locally.
+* **ebpf/xdp Native & Offload Support:** Add CLI options to force `XDP_FLAGS_SKB_MODE` (generic), `XDP_FLAGS_DRV_MODE` (native driver), or hardware offload onto supported NICs.
+* **REST API / gRPC Controller:** Build a daemon allowing external microservices or orchestration tools to update firewall rules programmatically.

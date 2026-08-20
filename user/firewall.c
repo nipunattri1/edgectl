@@ -14,13 +14,27 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+static void ensure_pin_dir_exists(const char *dir) {
+  struct stat st = {0};
+  if (stat(dir, &st) == -1) {
+    if (mkdir(dir, 0755) != 0 && errno != EEXIST) {
+      fprintf(stderr, "Failed to create pin directory %s: %s\n", dir,
+              strerror(errno));
+    }
+  }
+}
+
 void load_and_attach_firewall(FirewallConfig config) {
   struct firewall_bpf *skel;
   int err = 0, ifindex;
   bool ingress_attached = false;
   bool egress_attached = false;
 
-  mkdir(PIN_DIR, 0777);
+  ensure_pin_dir_exists(PIN_DIR);
+  unlink(LINK_PATH);
+  unlink(CONFIG_MAP_PATH);
+  unlink(MANUAL_BLOCK_MAP_PATH);
+  unlink(CT_MAP_PATH);
 
   ifindex = if_nametoindex(config.device);
   if (ifindex == 0) {
@@ -88,7 +102,7 @@ void load_and_attach_firewall(FirewallConfig config) {
 
   err = bpf_link__pin(skel->links.xdp_firewall, LINK_PATH);
   if (err) {
-    fprintf(stderr, "Failed to pin link: %d\n", err);
+    fprintf(stderr, "Failed to pin link: %s\n", strerror(-err));
     goto cleanup;
   }
 
@@ -172,7 +186,10 @@ void unload_firewall(const char *device_name) {
   unlink(MANUAL_BLOCK_MAP_PATH);
   unlink(CT_MAP_PATH);
 
-  rmdir(PIN_DIR);
+  if (rmdir(PIN_DIR) < 0 && errno != ENOENT) {
+    fprintf(stderr, "Warning: Failed to remove directory %s: %s\n", PIN_DIR,
+            strerror(errno));
+  }
 
   printf("Firewall unloaded.\n");
 }
