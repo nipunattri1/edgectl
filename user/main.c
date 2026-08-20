@@ -22,6 +22,7 @@ int main(int argc, char **argv) {
       .syn_rate_limit = 100,
       .udp_rate_limit = 1000,
       .udp_timeout_ns = 30000000000,
+      .default_allow = 1
   };
 
   if (ini_parse("config/config.ini", firewall_ini_handler, &config) < 0) {

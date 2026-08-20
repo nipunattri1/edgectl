@@ -130,27 +130,26 @@ static __always_inline int udp_attack_check(struct packet_headers *hdr,
 
 SEC("xdp")
 int xdp_firewall(struct xdp_md *ctx) {
+  __u32 config_key = 0;
+  FirewallConfig *config = bpf_map_lookup_elem(&config_map, &config_key);
+  if (!config) {
+    bpf_printk("no config found allowing all packets");
+    return XDP_PASS;
+  }
+
   void *data = (void *)(long)ctx->data;
   void *data_end = (void *)(long)ctx->data_end;
   struct packet_headers hdr = {0};
 
   if (parse_headers(data, data_end, &hdr) < 0)
-    return XDP_PASS;
+    return config->default_allow ? XDP_PASS : XDP_DROP;
 
   int pkt_sz = data_end - data;
 
-  __u32 config_key = 0;
-  FirewallConfig *config = bpf_map_lookup_elem(&config_map, &config_key);
-  if (config) {
-    if (contains_proto(config->block_mask, hdr.iph->protocol)) {
-      bpf_printk("packet of size %d dropped", pkt_sz);
-      return XDP_DROP;
-    }
-  } else {
-    bpf_printk("no config found allowing all packets");
-    return XDP_PASS;
+  if (contains_proto(config->block_mask, hdr.iph->protocol)) {
+    bpf_printk("packet of size %d dropped", pkt_sz);
+    return XDP_DROP;
   }
-
   struct ipv4_lpm_key key = {
       .prefixlen = 32,
       .ip = hdr.iph->saddr,
@@ -173,12 +172,19 @@ int xdp_firewall(struct xdp_md *ctx) {
 
 SEC("tc/egress")
 int handle_egress(struct __sk_buff *skb) {
+  __u32 config_key = 0;
+  FirewallConfig *config = bpf_map_lookup_elem(&config_map, &config_key);
+  if (!config) {
+    bpf_printk("no config found allowing all packets");
+    return TC_ACT_OK;
+  }
+
   void *data = (void *)(long)skb->data;
   void *data_end = (void *)(long)skb->data_end;
   struct packet_headers hdr = {0};
 
   if (parse_headers(data, data_end, &hdr) < 0)
-    return TC_ACT_OK;
+    return config->default_allow ? TC_ACT_OK : TC_ACT_SHOT;
 
   struct connection_key key = {0};
   key.src_ip = hdr.iph->saddr;
@@ -195,8 +201,10 @@ int handle_egress(struct __sk_buff *skb) {
     return TC_ACT_OK;
   }
 
-  struct connection_state state = {.last_seen_ns = bpf_ktime_get_ns(),
-                                   .state = 1};
+  struct connection_state state = {
+      .last_seen_ns = bpf_ktime_get_ns(),
+      .state = 1,
+  };
 
   bpf_map_update_elem(&ct_map, &key, &state, BPF_ANY);
 
@@ -205,6 +213,7 @@ int handle_egress(struct __sk_buff *skb) {
 
 SEC("tc/ingress")
 int handle_ingress(struct __sk_buff *skb) {
+
   void *data = (void *)(long)skb->data;
   void *data_end = (void *)(long)skb->data_end;
   struct packet_headers hdr = {0};
@@ -226,7 +235,6 @@ int handle_ingress(struct __sk_buff *skb) {
   } else {
     return TC_ACT_OK;
   }
-
   __u32 config_key = 0;
   FirewallConfig *config = bpf_map_lookup_elem(&config_map, &config_key);
   if (!config) {

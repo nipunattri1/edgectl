@@ -2,13 +2,20 @@
 #define CONFIG_H_
 
 #include "../include/common.h"
+#include <ctype.h>
 #include <linux/types.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <arpa/inet.h>
+#include <sys/cdefs.h>
 
+void __always_inline to_lowercase(char *str) {
+  for (int i = 0; str[i] != '\0'; i++) {
+    str[i] = tolower((unsigned char)str[i]);
+  }
+}
 static uint8_t parse_protocols(const char *str) {
   uint8_t mask = PROTO_NONE;
   char buffer[128];
@@ -40,6 +47,11 @@ static int firewall_ini_handler(void *user, const char *section,
   } else if (strcmp(section, "rules") == 0) {
     if (strcmp(name, "block_proto") == 0) {
       config->block_mask = parse_protocols(value);
+    } else if (strcmp(name, "default") == 0) {
+      char copy[strlen(value) + 1];
+      strcpy(copy, value);
+      to_lowercase(copy);
+      config->default_allow = strcmp(value, "allow") ? 1 : 0;
     }
   } else if (strcmp(section, "ddos") == 0) {
     if (strcmp(name, "syn_rate_limit") == 0) {

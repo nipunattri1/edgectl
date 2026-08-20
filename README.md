@@ -49,6 +49,7 @@ device = eth0
 [rules]
 # Comma-separated list: tcp, udp, icmp
 block_proto = icmp
+default=allow
 
 [ddos]
 # Maximum allowed packets per second per source IP
