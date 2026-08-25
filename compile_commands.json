@@ -1,0 +1,53 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/cc",
+      "-c",
+      "-O2",
+      "-g",
+      "-Wall",
+      "-Iinclude",
+      "-Isrc",
+      "-o",
+      "build/cli",
+      "user/main.c"
+    ],
+    "directory": "/home/bubble/work/xdp-firewall",
+    "file": "/home/bubble/work/xdp-firewall/user/main.c",
+    "output": "/home/bubble/work/xdp-firewall/build/cli"
+  },
+  {
+    "arguments": [
+      "/usr/bin/cc",
+      "-c",
+      "-O2",
+      "-g",
+      "-Wall",
+      "-Iinclude",
+      "-Isrc",
+      "-o",
+      "build/cli",
+      "user/firewall.c"
+    ],
+    "directory": "/home/bubble/work/xdp-firewall",
+    "file": "/home/bubble/work/xdp-firewall/user/firewall.c",
+    "output": "/home/bubble/work/xdp-firewall/build/cli"
+  },
+  {
+    "arguments": [
+      "/usr/bin/cc",
+      "-c",
+      "-O2",
+      "-g",
+      "-Wall",
+      "-Iinclude",
+      "-Isrc",
+      "-o",
+      "build/cli",
+      "include/ini.c"
+    ],
+    "directory": "/home/bubble/work/xdp-firewall",
+    "file": "/home/bubble/work/xdp-firewall/include/ini.c",
+    "output": "/home/bubble/work/xdp-firewall/build/cli"
+  }
+]

@@ -161,11 +161,15 @@ int xdp_firewall(struct xdp_md *ctx) {
     return XDP_DROP;
   }
 
-  if (syn_attack_check(&hdr, config, data_end))
+  if (syn_attack_check(&hdr, config, data_end)) {
+    bpf_printk("[FLOOD]: tcp flood detected, blocking");
     return XDP_DROP;
+  }
 
-  if (udp_attack_check(&hdr, config))
+  if (udp_attack_check(&hdr, config)) {
+    bpf_printk("[FLOOD]: udp flood detected, blocking");
     return XDP_DROP;
+  }
 
   return XDP_PASS;
 }
@@ -257,7 +261,7 @@ int handle_ingress(struct __sk_buff *skb) {
     existing->last_seen_ns = now;
     return TC_ACT_OK;
   }
-
+  bpf_printk("[TC]: blocking connection");
   return TC_ACT_SHOT;
 }
 

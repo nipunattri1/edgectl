@@ -7,7 +7,7 @@ hping3 -S -p 8080 --flood 192.168.10.1
 
 # for upd flood test
 iperf3 -s -D
-iperf3 -c 192.168.10.1 -u -b 20M -t 5
+iperf3 -c 127.0.0.1 -u -b 100M -l 64 -t 10
 pkill iperf3
 
 # unsolicited packets
