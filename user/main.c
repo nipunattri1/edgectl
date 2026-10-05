@@ -3,16 +3,22 @@
 #include "../include/ini.h"
 #include "config.h"
 #include "firewall.h"
-#include <stdio.h>
-#include <string.h>
 #include <arpa/inet.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
 
-int parse_cidr(const char *arg, uint32_t *ip_out, uint32_t *prefixlen_out);
+static int parse_cidr(const char *arg, struct ip_net *net);
 
 int main(int argc, char **argv) {
 
   if (argc < 2) {
-    fprintf(stderr, "Usage:\n  %s attach\n  %s reload\n", argv[0], argv[0]);
+    fprintf(stderr,
+            "Usage:\n  %s attach|detach|reload|list\n  %s block|unblock "
+            "<ipv4|ipv6>[/prefix]\n",
+            argv[0], argv[0]);
     return 1;
   }
 
@@ -22,7 +28,7 @@ int main(int argc, char **argv) {
       .syn_rate_limit = 100,
       .udp_rate_limit = 1000,
       .udp_timeout_ns = 30000000000,
-      .default_allow = 1
+      .default_allow = 1,
   };
 
   if (ini_parse("config/config.ini", firewall_ini_handler, &config) < 0) {
@@ -39,30 +45,20 @@ int main(int argc, char **argv) {
   } else if (strcmp(argv[1], "reload") == 0) {
     reload_config(config);
 
-  } else if (strcmp(argv[1], "block") == 0) {
-    uint32_t ip_network;
-    uint32_t prefixlen;
-
-    if (parse_cidr(argv[2], &ip_network, &prefixlen) != 0) {
+  } else if (strcmp(argv[1], "block") == 0 || strcmp(argv[1], "unblock") == 0) {
+    if (argc < 3) {
+      fprintf(stderr, "Usage: %s %s <ipv4|ipv6>[/prefix]\n", argv[0], argv[1]);
       return 1;
     }
 
-    block_ip(ip_network, prefixlen);
-
-    printf("Successfully blocked %s (Prefix length: /%u)\n", argv[2],
-           prefixlen);
-
-  } else if (strcmp(argv[1], "unblock") == 0) {
-    uint32_t ip_network;
-    uint32_t prefixlen;
-
-    if (parse_cidr(argv[2], &ip_network, &prefixlen) != 0) {
+    struct ip_net net;
+    if (parse_cidr(argv[2], &net) != 0)
       return 1;
-    }
 
-    unblock_ip(ip_network, prefixlen);
-    printf("Successfully unblocked %s (Prefix length: /%u)\n", argv[2],
-           prefixlen);
+    if (strcmp(argv[1], "block") == 0)
+      block_ip(&net);
+    else
+      unblock_ip(&net);
 
   } else if (strcmp(argv[1], "list") == 0) {
     print_blocked_ips();
@@ -75,32 +71,53 @@ int main(int argc, char **argv) {
   return 0;
 }
 
-int parse_cidr(const char *arg, uint32_t *ip_out, uint32_t *prefixlen_out) {
-  char ip_str[64];
-  strncpy(ip_str, arg, sizeof(ip_str) - 1);
-  ip_str[sizeof(ip_str) - 1] = '\0';
+static int parse_cidr(const char *arg, struct ip_net *net) {
+  char ip_str[INET6_ADDRSTRLEN + 8];
+  if (strlen(arg) >= sizeof(ip_str)) {
+    fprintf(stderr, "Address too long: %s\n", arg);
+    return -1;
+  }
+  strcpy(ip_str, arg);
 
   char *slash = strchr(ip_str, '/');
-  uint32_t prefixlen = 32;
+  long prefixlen = -1;
 
   if (slash != NULL) {
     *slash = '\0';
-    prefixlen = atoi(slash + 1);
-
-    if (prefixlen > 32) {
-      fprintf(stderr, "Invalid prefix length /%u. Must be between 0 and 32.\n",
-              prefixlen);
+    char *end = NULL;
+    errno = 0;
+    prefixlen = strtol(slash + 1, &end, 10);
+    if (errno || end == slash + 1 || *end != '\0' || prefixlen < 0) {
+      fprintf(stderr, "Invalid prefix length '%s'.\n", slash + 1);
       return -1;
     }
   }
 
-  struct in_addr dst;
-  if (inet_pton(AF_INET, ip_str, &dst) != 1) {
+  memset(net, 0, sizeof(*net));
+
+  if (inet_pton(AF_INET, ip_str, &net->addr.v4) == 1) {
+    net->family = AF_INET;
+    if (prefixlen < 0)
+      prefixlen = 32;
+    if (prefixlen > 32) {
+      fprintf(stderr, "Invalid prefix length /%ld. Must be 0-32 for IPv4.\n",
+              prefixlen);
+      return -1;
+    }
+  } else if (inet_pton(AF_INET6, ip_str, &net->addr.v6) == 1) {
+    net->family = AF_INET6;
+    if (prefixlen < 0)
+      prefixlen = 128;
+    if (prefixlen > 128) {
+      fprintf(stderr, "Invalid prefix length /%ld. Must be 0-128 for IPv6.\n",
+              prefixlen);
+      return -1;
+    }
+  } else {
     fprintf(stderr, "Invalid IP address format: %s\n", ip_str);
     return -1;
   }
 
-  *ip_out = dst.s_addr;
-  *prefixlen_out = prefixlen;
+  net->prefixlen = (__u32)prefixlen;
   return 0;
 }

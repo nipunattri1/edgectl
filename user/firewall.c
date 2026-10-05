@@ -8,11 +8,16 @@
 #include "../include/common.h"
 #include "../src/firewall.skel.h"
 #include <bpf/libbpf.h>
+#include <errno.h>
 #include <net/if.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
 
 static void ensure_pin_dir_exists(const char *dir) {
   struct stat st = {0};
@@ -24,6 +29,22 @@ static void ensure_pin_dir_exists(const char *dir) {
   }
 }
 
+static void unlink_all_pins(void) {
+  unlink(LINK_PATH);
+  unlink(CONFIG_MAP_PATH);
+  unlink(MANUAL_BLOCK_MAP_PATH);
+  unlink(MANUAL_BLOCK_MAP6_PATH);
+  unlink(CT_MAP_PATH);
+  unlink(CT6_MAP_PATH);
+}
+
+static int pin_map(struct bpf_map *map, const char *path) {
+  int err = bpf_map__pin(map, path);
+  if (err)
+    fprintf(stderr, "Failed to pin map %s: %s\n", path, strerror(-err));
+  return err;
+}
+
 void load_and_attach_firewall(FirewallConfig config) {
   struct firewall_bpf *skel;
   int err = 0, ifindex;
@@ -31,10 +52,7 @@ void load_and_attach_firewall(FirewallConfig config) {
   bool egress_attached = false;
 
   ensure_pin_dir_exists(PIN_DIR);
-  unlink(LINK_PATH);
-  unlink(CONFIG_MAP_PATH);
-  unlink(MANUAL_BLOCK_MAP_PATH);
-  unlink(CT_MAP_PATH);
+  unlink_all_pins();
 
   ifindex = if_nametoindex(config.device);
   if (ifindex == 0) {
@@ -106,37 +124,19 @@ void load_and_attach_firewall(FirewallConfig config) {
     goto cleanup;
   }
 
-  err = bpf_map__pin(skel->maps.config_map, CONFIG_MAP_PATH);
-  if (err) {
-    fprintf(stderr, "Failed to pin map: %d\n", err);
-    bpf_link__unpin(skel->links.xdp_firewall);
+  /* On any failure cleanup_pins removes every pin, so no per-map unpinning. */
+  if (pin_map(skel->maps.config_map, CONFIG_MAP_PATH) ||
+      pin_map(skel->maps.manual_blacklist_map, MANUAL_BLOCK_MAP_PATH) ||
+      pin_map(skel->maps.manual_blacklist6_map, MANUAL_BLOCK_MAP6_PATH) ||
+      pin_map(skel->maps.ct_map, CT_MAP_PATH) ||
+      pin_map(skel->maps.ct6_map, CT6_MAP_PATH))
     goto cleanup_pins;
-  }
 
-  err = bpf_map__pin(skel->maps.manual_blacklist_map, MANUAL_BLOCK_MAP_PATH);
-  if (err) {
-    fprintf(stderr, "Failed to pin map: %d\n", err);
-    bpf_link__unpin(skel->links.xdp_firewall);
-    bpf_map__unpin(skel->maps.config_map, CONFIG_MAP_PATH);
-    goto cleanup_pins;
-  }
-
-  err = bpf_map__pin(skel->maps.ct_map, CT_MAP_PATH);
-  if (err) {
-    fprintf(stderr, "Failed to pin ct_map: %s\n", strerror(-err));
-    bpf_link__unpin(skel->links.xdp_firewall);
-    bpf_map__unpin(skel->maps.config_map, CONFIG_MAP_PATH);
-    bpf_map__unpin(skel->maps.manual_blacklist_map, MANUAL_BLOCK_MAP_PATH);
-    goto cleanup_pins;
-  }
-
-  fprintf(stdout, "Successfully attach the program");
+  fprintf(stdout, "Successfully attach the program\n");
   return;
+
 cleanup_pins:
-  unlink(LINK_PATH);
-  unlink(CONFIG_MAP_PATH);
-  unlink(MANUAL_BLOCK_MAP_PATH);
-  unlink(CT_MAP_PATH);
+  unlink_all_pins();
 
 cleanup:
   if (ingress_attached) {
@@ -181,10 +181,7 @@ void unload_firewall(const char *device_name) {
   printf("Cleaned up TC hooks\n");
 
   printf("Unpinning BPF objects from %s...\n", PIN_DIR);
-  unlink(LINK_PATH);
-  unlink(CONFIG_MAP_PATH);
-  unlink(MANUAL_BLOCK_MAP_PATH);
-  unlink(CT_MAP_PATH);
+  unlink_all_pins();
 
   if (rmdir(PIN_DIR) < 0 && errno != ENOENT) {
     fprintf(stderr, "Warning: Failed to remove directory %s: %s\n", PIN_DIR,
@@ -296,123 +293,93 @@ void reload_config(FirewallConfig config) {
   close(map_fd);
   printf("Updated Config!\n");
 }
-void block_ip(__u32 ip, __u32 prefixlen) {
-  int map_fd = bpf_obj_get(MANUAL_BLOCK_MAP_PATH);
-  if (map_fd < 0) {
-    fprintf(stderr, "Error: Failed to fetch pinned map from %s: %s\n",
-            MANUAL_BLOCK_MAP_PATH, strerror(errno));
-    exit(1);
-  }
-  struct ipv4_lpm_key key = {.prefixlen = prefixlen, .ip = ip};
-  __u32 set_val = 1;
 
-  if (bpf_map_update_elem(map_fd, &key, &set_val, BPF_ANY) < 0) {
-    fprintf(stderr, "Failed to block IP/subnet: %s\n", strerror(errno));
-  } else {
-    printf("Successfully blocked rule (val: 1).\n");
+/* ------------------------- blacklist handling ------------------------- */
+
+static int set_rule(const struct ip_net *net, __u32 val, const char *verb) {
+  const char *path =
+      net->family == AF_INET6 ? MANUAL_BLOCK_MAP6_PATH : MANUAL_BLOCK_MAP_PATH;
+
+  int map_fd = bpf_obj_get(path);
+  if (map_fd < 0) {
+    fprintf(stderr, "Error: Failed to fetch pinned map from %s: %s\n", path,
+            strerror(errno));
+    return -1;
   }
+
+  int ret;
+  if (net->family == AF_INET6) {
+    struct ipv6_lpm_key key = {.prefixlen = net->prefixlen};
+    memcpy(key.addr, &net->addr.v6, sizeof(key.addr));
+    ret = bpf_map_update_elem(map_fd, &key, &val, BPF_ANY);
+  } else {
+    struct ipv4_lpm_key key = {.prefixlen = net->prefixlen, .ip = net->addr.v4};
+    ret = bpf_map_update_elem(map_fd, &key, &val, BPF_ANY);
+  }
+
+  if (ret < 0)
+    fprintf(stderr, "Failed to %s IP/subnet: %s\n", verb, strerror(errno));
+  else
+    printf("Successfully %sed rule (val: %u).\n", verb, val);
 
   close(map_fd);
+  return ret;
 }
 
-void unblock_ip(__u32 ip, __u32 prefixlen) {
-  int map_fd = bpf_obj_get(MANUAL_BLOCK_MAP_PATH);
+void block_ip(const struct ip_net *net) { set_rule(net, 1, "block"); }
+
+void unblock_ip(const struct ip_net *net) { set_rule(net, 0, "unblock"); }
+
+static size_t print_family(const char *path, int family) {
+  int map_fd = bpf_obj_get(path);
   if (map_fd < 0) {
-    fprintf(stderr, "Error: Failed to fetch pinned map from %s: %s\n",
-            MANUAL_BLOCK_MAP_PATH, strerror(errno));
-    exit(1);
-  }
-  struct ipv4_lpm_key key = {.prefixlen = prefixlen, .ip = ip};
-  __u32 set_val = 0;
-
-  if (bpf_map_update_elem(map_fd, &key, &set_val, BPF_ANY) < 0) {
-    fprintf(stderr, "Failed to unblock IP/subnet: %s\n", strerror(errno));
-  } else {
-    printf("Successfully unblocked rule (val: 0).\n");
+    fprintf(stderr, "Error: Failed to fetch pinned map from %s: %s\n", path,
+            strerror(errno));
+    return 0;
   }
 
-  close(map_fd);
-}
+  size_t count = 0;
+  /* Large enough for either key type. */
+  union {
+    struct ipv4_lpm_key v4;
+    struct ipv6_lpm_key v6;
+  } key, next;
 
-struct lpm_entry {
-  struct ipv4_lpm_key key;
-  __u32 val;
-};
-
-struct lpm_entry *get_blocked_ips(size_t *count) {
-  *count = 0;
-
-  int map_fd = bpf_obj_get(MANUAL_BLOCK_MAP_PATH);
-  if (map_fd < 0) {
-    fprintf(stderr, "Error: Failed to fetch pinned map from %s: %s\n",
-            MANUAL_BLOCK_MAP_PATH, strerror(errno));
-    return NULL;
-  }
-
-  size_t capacity = 16;
-  struct lpm_entry *entries = malloc(capacity * sizeof(struct lpm_entry));
-  if (!entries) {
-    close(map_fd);
-    return NULL;
-  }
-
-  struct ipv4_lpm_key key, next_key;
-
-  int res = bpf_map_get_next_key(map_fd, NULL, &next_key);
-
+  int res = bpf_map_get_next_key(map_fd, NULL, &next);
   while (res == 0) {
-    if (*count >= capacity) {
-      capacity *= 2;
-      struct lpm_entry *tmp =
-          realloc(entries, capacity * sizeof(struct lpm_entry));
-      if (!tmp) {
-        free(entries);
-        close(map_fd);
-        *count = 0;
-        return NULL;
-      }
-      entries = tmp;
+    __u32 val = 0;
+    char ip_str[INET6_ADDRSTRLEN];
+    bpf_map_lookup_elem(map_fd, &next, &val);
+
+    const char *s = NULL;
+    __u32 prefixlen;
+    if (family == AF_INET6) {
+      s = inet_ntop(AF_INET6, next.v6.addr, ip_str, sizeof(ip_str));
+      prefixlen = next.v6.prefixlen;
+    } else {
+      struct in_addr addr = {.s_addr = next.v4.ip};
+      s = inet_ntop(AF_INET, &addr, ip_str, sizeof(ip_str));
+      prefixlen = next.v4.prefixlen;
     }
 
-    // Lookup the corresponding action value for the key
-    __u32 val = 0;
-    bpf_map_lookup_elem(map_fd, &next_key, &val);
+    if (s) {
+      printf(" - %s/%u [%s]\n", ip_str, prefixlen,
+             val == 1 ? "BLOCKED" : "ALLOWED");
+      count++;
+    }
 
-    entries[*count].key = next_key;
-    entries[*count].val = val;
-    (*count)++;
-
-    key = next_key;
-    res = bpf_map_get_next_key(map_fd, &key, &next_key);
+    key = next;
+    res = bpf_map_get_next_key(map_fd, &key, &next);
   }
 
   close(map_fd);
-
-  if (*count == 0) {
-    free(entries);
-    return NULL;
-  }
-
-  return entries;
+  return count;
 }
 
-void print_blocked_ips() {
-  size_t num_entries = 0;
-  struct lpm_entry *entries = get_blocked_ips(&num_entries);
-
-  if (entries) {
-    printf("Configured IP Rules (%zu):\n", num_entries);
-    for (size_t i = 0; i < num_entries; i++) {
-      char ip_str[INET_ADDRSTRLEN];
-      struct in_addr addr = {.s_addr = entries[i].key.ip};
-
-      if (inet_ntop(AF_INET, &addr, ip_str, sizeof(ip_str))) {
-        printf(" - %s/%u [%s]\n", ip_str, entries[i].key.prefixlen,
-               entries[i].val == 1 ? "BLOCKED" : "ALLOWED");
-      }
-    }
-    free(entries);
-  } else {
-    printf("No rules found or failed to read map.\n");
-  }
+void print_blocked_ips(void) {
+  printf("Configured IP Rules:\n");
+  size_t n = print_family(MANUAL_BLOCK_MAP_PATH, AF_INET);
+  n += print_family(MANUAL_BLOCK_MAP6_PATH, AF_INET6);
+  if (n == 0)
+    printf("No rules found or failed to read maps.\n");
 }

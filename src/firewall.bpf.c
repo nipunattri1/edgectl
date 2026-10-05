@@ -4,128 +4,22 @@
 #include <bpf/bpf_helpers.h>
 
 #include "maps.bpf.h"
+#include "utils.bpf.h"
 
 #define TC_ACT_OK 0
 #define TC_ACT_SHOT 2
 
-struct packet_headers {
-  struct iphdr *iph;
-  union {
-    struct tcphdr *tcph;
-    struct udphdr *udph;
-    void *l4_hdr;
-  };
-};
 
-static __always_inline int contains_proto(__u64 mask, __u8 proto) {
-  if (proto == 0 || proto >= 64)
-    return 0;
-  return (mask & (1ULL << proto)) ? 1 : 0;
-}
-
-static __always_inline int parse_headers(void *data, void *data_end,
-                                         struct packet_headers *hdr) {
-  struct ethhdr *eth = data;
-  if ((void *)(eth + 1) > data_end)
-    return -1;
-
-  if (eth->h_proto != bpf_htons(ETH_P_IP))
-    return -1;
-
-  struct iphdr *iph = (void *)(eth + 1);
-  if ((void *)(iph + 1) > data_end)
-    return -1;
-
-  hdr->iph = iph;
-  __u8 ip_hl = iph->ihl * 4;
-  if (ip_hl < sizeof(struct iphdr))
-    return -1;
-
-  void *l4_ptr = (void *)iph + ip_hl;
-
-  if (iph->protocol == IPPROTO_TCP) {
-    if (l4_ptr + sizeof(struct tcphdr) > data_end)
-      return -1;
-    hdr->tcph = (struct tcphdr *)l4_ptr;
-  } else if (iph->protocol == IPPROTO_UDP) {
-    if (l4_ptr + sizeof(struct udphdr) > data_end)
-      return -1;
-    hdr->udph = (struct udphdr *)l4_ptr;
-  } else {
-    hdr->l4_hdr = NULL;
-  }
-
-  return 0;
-}
-
-static __always_inline int syn_attack_check(struct packet_headers *hdr,
-                                            FirewallConfig *config,
-                                            void *data_end) {
-  if (hdr->iph->protocol != IPPROTO_TCP || !hdr->tcph)
-    return 0;
-
-  if ((void *)(hdr->tcph + 1) > data_end)
-    return 0;
-
-  if (!(hdr->tcph->syn && !hdr->tcph->ack))
-    return 0;
-
-  __u32 src_ip = hdr->iph->saddr;
+static __always_inline int ct_refresh(struct connection_state *existing,
+                                      __u8 proto, FirewallConfig *config) {
   __u64 now = bpf_ktime_get_ns();
 
-  struct flood_tracker *tracker = bpf_map_lookup_elem(&syn_flood_map, &src_ip);
-
-  if (tracker) {
-    __u64 elapsed = now - tracker->timestamp;
-
-    if (elapsed > 1000000000ULL) {
-      tracker->timestamp = now;
-      tracker->count = 1;
-      return 0;
-    }
-
-    if (tracker->count >= config->syn_rate_limit) {
-      return 1;
-    }
-    __sync_fetch_and_add(&(tracker->count), 1);
-  } else {
-    struct flood_tracker new_tracker = {.timestamp = now, .count = 1};
-    bpf_map_update_elem(&syn_flood_map, &src_ip, &new_tracker, BPF_ANY);
-  }
-
-  return 0;
-}
-
-static __always_inline int udp_attack_check(struct packet_headers *hdr,
-                                            FirewallConfig *config) {
-  if (hdr->iph->protocol != IPPROTO_UDP || !hdr->udph)
+  if (proto == IPPROTO_UDP &&
+      now - existing->last_seen_ns > config->udp_timeout_ns)
     return 0;
 
-  __u32 src_ip = hdr->iph->saddr;
-  __u64 now = bpf_ktime_get_ns();
-
-  struct flood_tracker *tracker = bpf_map_lookup_elem(&udp_flood_map, &src_ip);
-
-  if (tracker) {
-    __u64 elapsed = now - tracker->timestamp;
-
-    if (elapsed > 1000000000ULL) {
-      tracker->timestamp = now;
-      tracker->count = 1;
-      return 0;
-    }
-
-    if (tracker->count >= config->udp_rate_limit) {
-      return 1;
-    }
-
-    __sync_fetch_and_add(&(tracker->count), 1);
-  } else {
-    struct flood_tracker new_tracker = {.timestamp = now, .count = 1};
-    bpf_map_update_elem(&udp_flood_map, &src_ip, &new_tracker, BPF_ANY);
-  }
-
-  return 0;
+  existing->last_seen_ns = now;
+  return 1;
 }
 
 SEC("xdp")
@@ -146,18 +40,18 @@ int xdp_firewall(struct xdp_md *ctx) {
 
   int pkt_sz = data_end - data;
 
-  if (contains_proto(config->block_mask, hdr.iph->protocol)) {
+  if (contains_proto(config->block_mask, hdr.l4_proto)) {
     bpf_printk("packet of size %d dropped", pkt_sz);
     return XDP_DROP;
   }
-  struct ipv4_lpm_key key = {
-      .prefixlen = 32,
-      .ip = hdr.iph->saddr,
-  };
 
-  __u32 *is_blocked = bpf_map_lookup_elem(&manual_blacklist_map, &key);
-  if (is_blocked && *is_blocked == 1) {
-    bpf_printk("Dropping packet from %pI4 (LPM match: block)", &hdr.iph->saddr);
+  if (is_blacklisted(&hdr)) {
+    if (hdr.iph)
+      bpf_printk("Dropping packet from %pI4 (LPM match: block)",
+                 &hdr.iph->saddr);
+    else
+      bpf_printk("Dropping packet from %pI6 (LPM match: block)",
+                 &hdr.ip6h->saddr);
     return XDP_DROP;
   }
 
@@ -166,7 +60,7 @@ int xdp_firewall(struct xdp_md *ctx) {
     return XDP_DROP;
   }
 
-  if (udp_attack_check(&hdr, config)) {
+  if (udp_attack_check(&hdr, config, data_end)) {
     bpf_printk("[FLOOD]: udp flood detected, blocking");
     return XDP_DROP;
   }
@@ -190,34 +84,39 @@ int handle_egress(struct __sk_buff *skb) {
   if (parse_headers(data, data_end, &hdr) < 0)
     return config->default_allow ? TC_ACT_OK : TC_ACT_SHOT;
 
-  struct connection_key key = {0};
-  key.src_ip = hdr.iph->saddr;
-  key.dst_ip = hdr.iph->daddr;
-  key.proto = hdr.iph->protocol;
-
-  if (hdr.iph->protocol == IPPROTO_TCP && hdr.tcph) {
-    key.src_port = hdr.tcph->source;
-    key.dst_port = hdr.tcph->dest;
-  } else if (hdr.iph->protocol == IPPROTO_UDP && hdr.udph) {
-    key.src_port = hdr.udph->source;
-    key.dst_port = hdr.udph->dest;
-  } else {
+  // Only TCP/UDP are tracked; everything else (eg. ICMPv6) passes. 
+  __be16 sport, dport;
+  if (get_ports(&hdr, data_end, &sport, &dport) < 0)
     return TC_ACT_OK;
-  }
 
   struct connection_state state = {
       .last_seen_ns = bpf_ktime_get_ns(),
       .state = 1,
   };
 
-  bpf_map_update_elem(&ct_map, &key, &state, BPF_ANY);
+  if (hdr.iph) {
+    struct connection_key key = {0};
+    key.src_ip = hdr.iph->saddr;
+    key.dst_ip = hdr.iph->daddr;
+    key.src_port = sport;
+    key.dst_port = dport;
+    key.proto = hdr.l4_proto;
+    bpf_map_update_elem(&ct_map, &key, &state, BPF_ANY);
+  } else if (hdr.ip6h) {
+    struct connection_key6 key = {0};
+    __builtin_memcpy(key.src_ip, &hdr.ip6h->saddr, 16);
+    __builtin_memcpy(key.dst_ip, &hdr.ip6h->daddr, 16);
+    key.src_port = sport;
+    key.dst_port = dport;
+    key.proto = hdr.l4_proto;
+    bpf_map_update_elem(&ct6_map, &key, &state, BPF_ANY);
+  }
 
   return TC_ACT_OK;
 }
 
 SEC("tc/ingress")
 int handle_ingress(struct __sk_buff *skb) {
-
   void *data = (void *)(long)skb->data;
   void *data_end = (void *)(long)skb->data_end;
   struct packet_headers hdr = {0};
@@ -225,20 +124,10 @@ int handle_ingress(struct __sk_buff *skb) {
   if (parse_headers(data, data_end, &hdr) < 0)
     return TC_ACT_OK;
 
-  struct connection_key reverse_key = {0};
-  reverse_key.src_ip = hdr.iph->daddr;
-  reverse_key.dst_ip = hdr.iph->saddr;
-  reverse_key.proto = hdr.iph->protocol;
-
-  if (hdr.iph->protocol == IPPROTO_TCP && hdr.tcph) {
-    reverse_key.src_port = hdr.tcph->dest;
-    reverse_key.dst_port = hdr.tcph->source;
-  } else if (hdr.iph->protocol == IPPROTO_UDP && hdr.udph) {
-    reverse_key.src_port = hdr.udph->dest;
-    reverse_key.dst_port = hdr.udph->source;
-  } else {
+  __be16 sport, dport;
+  if (get_ports(&hdr, data_end, &sport, &dport) < 0)
     return TC_ACT_OK;
-  }
+
   __u32 config_key = 0;
   FirewallConfig *config = bpf_map_lookup_elem(&config_map, &config_key);
   if (!config) {
@@ -246,21 +135,42 @@ int handle_ingress(struct __sk_buff *skb) {
     return TC_ACT_OK;
   }
 
-  struct connection_state *existing =
-      bpf_map_lookup_elem(&ct_map, &reverse_key);
-  if (existing) {
-    __u64 now = bpf_ktime_get_ns();
+  if (hdr.iph) {
+    struct connection_key reverse_key = {0};
+    reverse_key.src_ip = hdr.iph->daddr;
+    reverse_key.dst_ip = hdr.iph->saddr;
+    reverse_key.src_port = dport;
+    reverse_key.dst_port = sport;
+    reverse_key.proto = hdr.l4_proto;
 
-    if (hdr.iph->protocol == IPPROTO_UDP) {
-      if (now - existing->last_seen_ns > config->udp_timeout_ns) {
+    struct connection_state *existing =
+        bpf_map_lookup_elem(&ct_map, &reverse_key);
+    if (existing) {
+      if (!ct_refresh(existing, hdr.l4_proto, config)) {
         bpf_map_delete_elem(&ct_map, &reverse_key);
         return TC_ACT_SHOT;
       }
+      return TC_ACT_OK;
     }
+  } else if (hdr.ip6h) {
+    struct connection_key6 reverse_key = {0};
+    __builtin_memcpy(reverse_key.src_ip, &hdr.ip6h->daddr, 16);
+    __builtin_memcpy(reverse_key.dst_ip, &hdr.ip6h->saddr, 16);
+    reverse_key.src_port = dport;
+    reverse_key.dst_port = sport;
+    reverse_key.proto = hdr.l4_proto;
 
-    existing->last_seen_ns = now;
-    return TC_ACT_OK;
+    struct connection_state *existing =
+        bpf_map_lookup_elem(&ct6_map, &reverse_key);
+    if (existing) {
+      if (!ct_refresh(existing, hdr.l4_proto, config)) {
+        bpf_map_delete_elem(&ct6_map, &reverse_key);
+        return TC_ACT_SHOT;
+      }
+      return TC_ACT_OK;
+    }
   }
+
   bpf_printk("[TC]: blocking connection");
   return TC_ACT_SHOT;
 }

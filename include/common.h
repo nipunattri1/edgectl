@@ -20,6 +20,8 @@
 #define MANUAL_BLOCK_MAP_PATH "/sys/fs/bpf/xdp_firewall/manual_block_map"
 #define LINK_PATH "/sys/fs/bpf/xdp_firewall/prog_link"
 #define CT_MAP_PATH "/sys/fs/bpf/xdp_firewall/ct_map"
+#define MANUAL_BLOCK_MAP6_PATH PIN_DIR "/manual_blacklist6_map"
+#define CT6_MAP_PATH PIN_DIR "/ct6_map"
 
 #if defined(__bpf__) || defined(__BPF__)
 #include "vmlinux.h"
