@@ -144,6 +144,13 @@ func (l *Loader) attachTCX(ingressProg, egressProg *ebpf.Program) error {
 		return fmt.Errorf("tcx egress: %w", err)
 	}
 	l.links = append(l.links, egressLink)
+
+	if err := ingressLink.Pin(filepath.Join(PIN_DIR, "tc_ingress_link")); err != nil {
+		return fmt.Errorf("pin tc ingress: %w", err)
+	}
+	if err := egressLink.Pin(filepath.Join(PIN_DIR, "tc_egress_link")); err != nil {
+		return fmt.Errorf("pin tc egress: %w", err)
+	}
 	return nil
 }
 
@@ -171,7 +178,7 @@ func (l *Loader) Close() error {
 		}
 	}
 
-	for _, p := range []string{LinkPath, ConfigMapPath, ManualBlockMapPath, ManualBlockMap6Path, CTMapPath, CT6MapPath} {
+	for _, p := range []string{LinkPath, filepath.Join(PIN_DIR, "tc_ingress_link"), filepath.Join(PIN_DIR, "tc_egress_link"), ConfigMapPath, ManualBlockMapPath, ManualBlockMap6Path, CTMapPath, CT6MapPath} {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			errs = append(errs, fmt.Errorf("unpin %s: %w", p, err))
 		}

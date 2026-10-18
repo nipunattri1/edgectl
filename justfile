@@ -5,6 +5,7 @@ generate:
     cd internal/bpf && go generate ./...
 
 build: generate
+    mkdir -p build
     go build -o build/edgewall ./cmd/edgewall
 
 clean:
