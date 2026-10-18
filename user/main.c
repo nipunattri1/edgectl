@@ -7,18 +7,51 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <getopt.h>
 #include <string.h>
 #include <sys/socket.h>
 
 static int parse_cidr(const char *arg, struct ip_net *net);
 
-int main(int argc, char **argv) {
+static void usage(const char *prog) {
+  fprintf(stderr,
+          "Usage:\n  %s [--config FILE] attach|detach|reload|list\n"
+          "  %s [--config FILE] block|unblock <ipv4|ipv6>[/prefix]\n",
+          prog, prog);
+}
 
-  if (argc < 2) {
-    fprintf(stderr,
-            "Usage:\n  %s attach|detach|reload|list\n  %s block|unblock "
-            "<ipv4|ipv6>[/prefix]\n",
-            argv[0], argv[0]);
+int main(int argc, char **argv) {
+  const char *prog = argv[0];
+  const char *config_path = getenv("FIREWALL_CONFIG");
+  if (!config_path || !*config_path)
+    config_path = "config/config.ini";
+
+  static struct option long_opts[] = {
+      {"config", required_argument, 0, 'c'},
+      {"help", no_argument, 0, 'h'},
+      {0, 0, 0, 0},
+  };
+
+  int opt;
+  while ((opt = getopt_long(argc, argv, "c:h", long_opts, NULL)) != -1) {
+    switch (opt) {
+    case 'c':
+      config_path = optarg;
+      break;
+    case 'h':
+      usage(prog);
+      return 0;
+    default:
+      usage(prog);
+      return 1;
+    }
+  }
+
+  argc -= optind;
+  argv += optind;
+
+  if (argc < 1) {
+    usage(prog);
     return 1;
   }
 
@@ -31,40 +64,39 @@ int main(int argc, char **argv) {
       .default_allow = 1,
   };
 
-  if (ini_parse("config/config.ini", firewall_ini_handler, &config) < 0) {
-    fprintf(stderr,
-            "Error loading 'config.ini', applying default fallbacks.\n");
+  if (ini_parse(config_path, firewall_ini_handler, &config) < 0) {
+    fprintf(stderr, "Error loading '%s', applying default fallbacks.\n", config_path);
   }
 
-  if (strcmp(argv[1], "attach") == 0) {
+  if (argc >= 1 && strcmp(argv[0], "attach") == 0) {
     load_and_attach_firewall(config);
 
-  } else if (strcmp(argv[1], "detach") == 0) {
+  } else if (strcmp(argv[0], "detach") == 0) {
     unload_firewall(config.device);
 
-  } else if (strcmp(argv[1], "reload") == 0) {
+  } else if (strcmp(argv[0], "reload") == 0) {
     reload_config(config);
 
-  } else if (strcmp(argv[1], "block") == 0 || strcmp(argv[1], "unblock") == 0) {
-    if (argc < 3) {
-      fprintf(stderr, "Usage: %s %s <ipv4|ipv6>[/prefix]\n", argv[0], argv[1]);
+  } else if (strcmp(argv[0], "block") == 0 || strcmp(argv[0], "unblock") == 0) {
+    if (argc < 2) {
+      fprintf(stderr, "Usage: %s %s <ipv4|ipv6>[/prefix]\n", prog, argv[0]);
       return 1;
     }
 
     struct ip_net net;
-    if (parse_cidr(argv[2], &net) != 0)
+    if (parse_cidr(argv[1], &net) != 0)
       return 1;
 
-    if (strcmp(argv[1], "block") == 0)
+    if (strcmp(argv[0], "block") == 0)
       block_ip(&net);
     else
       unblock_ip(&net);
 
-  } else if (strcmp(argv[1], "list") == 0) {
+  } else if (strcmp(argv[0], "list") == 0) {
     print_blocked_ips();
 
   } else {
-    fprintf(stderr, "Unknown command: %s\n", argv[1]);
+    fprintf(stderr, "Unknown command: %s\n", argv[0]);
     return 1;
   }
 
@@ -73,11 +105,7 @@ int main(int argc, char **argv) {
 
 static int parse_cidr(const char *arg, struct ip_net *net) {
   char ip_str[INET6_ADDRSTRLEN + 8];
-  if (strlen(arg) >= sizeof(ip_str)) {
-    fprintf(stderr, "Address too long: %s\n", arg);
-    return -1;
-  }
-  strcpy(ip_str, arg);
+  snprintf(ip_str, sizeof(ip_str), "%s", arg);
 
   char *slash = strchr(ip_str, '/');
   long prefixlen = -1;

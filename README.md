@@ -27,18 +27,24 @@ This project filters packets at the driver/kernel boundary before SKB allocation
 │   ├── common.h           # Shared structures (FirewallConfig, IPv4 LPM key, pin paths)
 │   ├── ini.h              # INI parser library header
 │   └── vmlinux.h          # BPF kernel type definitions
-├── src/
-│   ├── main.c             # Userspace CLI manager (command dispatch, IPv4/IPv6 CIDR parsing)
-│   ├── config.h           # INI file parsing logic and handlers
-│   ├── firewall.c         # Userspace loader: attach / detach / reload / rule management
-│   ├── firewall.h         # Userspace API declarations, struct ip_net, ipv6_lpm_key
+├── bpf/
 │   ├── firewall.bpf.c     # eBPF kernel programs (XDP, TC Ingress/Egress)
-│   ├── utils.bpf.h        # Header parsing (IPv4/IPv6), ACL lookup, flood checks
-│   └── maps.bpf.h         # BPF map definitions (LPM tries, LRU hashes, arrays)
+│   ├── maps.bpf.h         # BPF map definitions (LPM tries, LRU hashes, arrays)
+│   └── utils.bpf.h        # Header parsing (IPv4/IPv6), ACL lookup, flood checks
+├── user/
+│   ├── main.c             # Userspace CLI manager (command dispatch, IPv4/IPv6 CIDR parsing)
+│   ├── attach.c           # Load, attach and pin programs/maps
+│   ├── detach.c           # Unload and unpin
+│   ├── reload.c           # Hot config reload and TC toggle
+│   ├── blacklist.c        # Blacklist management and listing
+│   ├── firewall.h         # Userspace API declarations, struct ip_net, ipv6_lpm_key
+│   ├── config.h           # INI file parsing logic and handlers
+│   └── internal.h         # Internal helpers
+├── build/                 # Build artifacts
 └── README.md
 ```
 
-> **Keep in sync:** `struct ipv6_lpm_key` is defined in both `src/maps.bpf.h` (kernel) and `src/firewall.h` (userspace). The two definitions must stay identical.
+> **Keep in sync:** `struct ipv6_lpm_key` is defined in both `bpf/maps.bpf.h` (kernel) and `user/firewall.h` (userspace). The two definitions must stay identical.
 
 ---
 
