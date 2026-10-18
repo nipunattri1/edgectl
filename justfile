@@ -1,18 +1,14 @@
 # justfile
 set shell := ["bash", "-cu"]
 
-bpf:
-    mkdir -p build
-    clang -g -O2 -target bpf -Iinclude -Ibpf -c bpf/firewall.bpf.c -o build/firewall.bpf.o
+generate:
+    cd internal/bpf && go generate ./...
 
-gen: bpf
-    go generate ./...
-
-build: gen
+build: generate
     go build -o build/edgewall ./cmd/edgewall
 
 clean:
-    rm -rf build bpf/*_bpfel.go bpf/*_bpfeb.go
+    rm -rf build internal/bpf/*_bpfel.go internal/bpf/*_bpfeb.go internal/bpf/*.o
 
 fmt:
     gofmt -w .
