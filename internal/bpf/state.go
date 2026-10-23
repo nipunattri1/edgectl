@@ -3,7 +3,6 @@ package bpf
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,19 +13,6 @@ import (
 	"github.com/nipunattri1/xdp-firewall/internal/config"
 	"github.com/nipunattri1/xdp-firewall/internal/gen"
 )
-
-// protocolNumbers lists the protocols that fit in the kernel's 64-bit block mask.
-var protocolNumbers = map[string]uint8{
-	"icmp":      1,
-	"igmp":      2,
-	"tcp":       6,
-	"udp":       17,
-	"gre":       47,
-	"esp":       50,
-	"ah":        51,
-	"icmpv6":    58,
-	"ipv6-icmp": 58,
-}
 
 func Attach(cfg config.Config) error {
 
@@ -169,7 +155,7 @@ func ReloadConfig(cfg config.Config) error {
 
 	m, err := ebpf.LoadPinnedMap(filepath.Join(cfg.PinDir, gen.EdgeWallMapConfigMap), nil)
 	if err != nil {
-		log.Fatalf("fetching map: %w", err)
+		return fmt.Errorf("fetching map: %w", err)
 	}
 
 	return m.Update(&key, &newCfg, ebpf.UpdateExist)
@@ -244,37 +230,10 @@ func listFamily(path, family string) ([]BlockedIP, error) {
 	return result, nil
 }
 
-func updateLPM(net *IPNet, val uint32, pinDir string) error {
+func updateLPM(net *IPNet, val uint32, cfg config.Config) error {
 	var path string
-	var key any
-
-	if net.Family == "ipv4" {
-		path = filepath.Join(pinDir, gen.EdgeWallMapManualBlacklistMap)
-		ip4 := net.IP.To4()
-		var ipBytes [4]byte
-		copy(ipBytes[:], ip4)
-		ipVal := binary.BigEndian.Uint32(ipBytes[:])
-		key = gen.EdgeWallIpv4LpmKey{Prefixlen: uint32(net.PrefixLen), Ip: ipVal}
-	} else {
-		path = filepath.Join(pinDir, gen.EdgeWallMapManualBlacklist6Map)
-		ip6 := net.IP.To16()
-		var ipBytes [16]byte
-		copy(ipBytes[:], ip6)
-		key = gen.EdgeWallIpv6LpmKey{Prefixlen: uint32(net.PrefixLen), Addr: ipBytes}
-	}
-
-	mapFD, err := ebpf.LoadPinnedMap(path, &ebpf.LoadPinOptions{})
-	if err != nil {
-		return fmt.Errorf("load map %s: %w", path, err)
-	}
-	defer mapFD.Close()
-
-	return mapFD.Update(&key, &val, ebpf.UpdateAny)
-}
-
-func deleteLPM(net *IPNet, cfg config.Config) error {
-	var path string
-	var key any
+	var mapFD *ebpf.Map
+	var err error
 
 	if net.Family == "ipv4" {
 		path = filepath.Join(cfg.PinDir, gen.EdgeWallMapManualBlacklistMap)
@@ -282,26 +241,89 @@ func deleteLPM(net *IPNet, cfg config.Config) error {
 		var ipBytes [4]byte
 		copy(ipBytes[:], ip4)
 		ipVal := binary.BigEndian.Uint32(ipBytes[:])
-		key = gen.EdgeWallIpv4LpmKey{Prefixlen: uint32(net.PrefixLen), Ip: ipVal}
+
+		// Concrete type instead of `any`
+		key := gen.EdgeWallIpv4LpmKey{
+			Prefixlen: uint32(net.PrefixLen),
+			Ip:        ipVal,
+		}
+
+		mapFD, err = ebpf.LoadPinnedMap(path, &ebpf.LoadPinOptions{})
+		if err != nil {
+			return fmt.Errorf("load map %s: %w", path, err)
+		}
+		defer mapFD.Close()
+
+		return mapFD.Update(&key, &val, ebpf.UpdateAny)
 	} else {
 		path = filepath.Join(cfg.PinDir, gen.EdgeWallMapManualBlacklist6Map)
 		ip6 := net.IP.To16()
 		var ipBytes [16]byte
 		copy(ipBytes[:], ip6)
-		key = gen.EdgeWallIpv6LpmKey{Prefixlen: uint32(net.PrefixLen), Addr: ipBytes}
-	}
 
-	mapFD, err := ebpf.LoadPinnedMap(path, &ebpf.LoadPinOptions{})
-	if err != nil {
-		return fmt.Errorf("load map %s: %w", path, err)
-	}
-	defer mapFD.Close()
+		// Concrete type instead of `any`
+		key := gen.EdgeWallIpv6LpmKey{
+			Prefixlen: uint32(net.PrefixLen),
+			Addr:      ipBytes,
+		}
 
-	return mapFD.Delete(&key)
+		mapFD, err = ebpf.LoadPinnedMap(path, &ebpf.LoadPinOptions{})
+		if err != nil {
+			return fmt.Errorf("load map %s: %w", path, err)
+		}
+		defer mapFD.Close()
+
+		return mapFD.Update(&key, &val, ebpf.UpdateAny)
+	}
+}
+
+func deleteLPM(net *IPNet, cfg config.Config) error {
+	var path string
+	var mapFD *ebpf.Map
+	var err error
+
+	if net.Family == "ipv4" {
+		path = filepath.Join(cfg.PinDir, gen.EdgeWallMapManualBlacklistMap)
+		ip4 := net.IP.To4()
+		var ipBytes [4]byte
+		copy(ipBytes[:], ip4)
+		ipVal := binary.BigEndian.Uint32(ipBytes[:])
+
+		key := gen.EdgeWallIpv4LpmKey{
+			Prefixlen: uint32(net.PrefixLen),
+			Ip:        ipVal,
+		}
+
+		mapFD, err = ebpf.LoadPinnedMap(path, &ebpf.LoadPinOptions{})
+		if err != nil {
+			return fmt.Errorf("load map %s: %w", path, err)
+		}
+		defer mapFD.Close()
+
+		return mapFD.Delete(&key)
+	} else {
+		path = filepath.Join(cfg.PinDir, gen.EdgeWallMapManualBlacklist6Map)
+		ip6 := net.IP.To16()
+		var ipBytes [16]byte
+		copy(ipBytes[:], ip6)
+
+		key := gen.EdgeWallIpv6LpmKey{
+			Prefixlen: uint32(net.PrefixLen),
+			Addr:      ipBytes,
+		}
+
+		mapFD, err = ebpf.LoadPinnedMap(path, &ebpf.LoadPinOptions{})
+		if err != nil {
+			return fmt.Errorf("load map %s: %w", path, err)
+		}
+		defer mapFD.Close()
+
+		return mapFD.Delete(&key)
+	}
 }
 
 func BlockIP(net *IPNet, cfg config.Config) error {
-	return updateLPM(net, 1, cfg.PinDir)
+	return updateLPM(net, 1, cfg)
 }
 
 func UnblockIP(net *IPNet, cfg config.Config) error {

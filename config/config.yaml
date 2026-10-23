@@ -1,9 +1,9 @@
 interface:
-  device: enp0s20f0u4
-  mode: native
+  device: enp7s0
+  mode: generic
 
 rules:
-  block_proto: [icmp]
+  block_proto: [icmpv6]
   default: disallow
 
 ddos:

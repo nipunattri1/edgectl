@@ -2,7 +2,6 @@
 #define __HELPERS_BPF_H_
 
 #include "../include/vmlinux.h"
-#include "../include/common.h"
 #include "maps.bpf.h"
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>

@@ -4,8 +4,21 @@
 #include "../include/vmlinux.h"
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
-#include "../include/common.h"
 
+typedef struct {
+  char device[16];
+  __u64 block_mask;
+  __u8 enable_tc;
+  __u8 default_allow;
+  __u32 syn_rate_limit;
+  __u32 udp_rate_limit;
+  __u64 udp_timeout_ns;
+} FirewallConfig;
+
+struct ipv4_lpm_key {
+  __u32 prefixlen;
+  __u32 ip;
+};
 struct ipv6_lpm_key {
   __u32 prefixlen;
   __u8 addr[16];
