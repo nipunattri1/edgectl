@@ -4,8 +4,21 @@
 #include "../include/vmlinux.h"
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
-#include "../include/common.h"
 
+typedef struct {
+  char device[16];
+  __u64 block_mask;
+  __u8 enable_tc;
+  __u8 default_allow;
+  __u32 syn_rate_limit;
+  __u32 udp_rate_limit;
+  __u64 udp_timeout_ns;
+} FirewallConfig;
+
+struct ipv4_lpm_key {
+  __u32 prefixlen;
+  __u32 ip;
+};
 struct ipv6_lpm_key {
   __u32 prefixlen;
   __u8 addr[16];
@@ -16,6 +29,7 @@ struct {
   __type(key, __u32);
   __type(value, FirewallConfig);
   __uint(max_entries, 1);
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
 } config_map SEC(".maps");
 
 struct {
@@ -24,6 +38,7 @@ struct {
   __type(key, struct ipv4_lpm_key);
   __type(value, __u32);
   __uint(map_flags, BPF_F_NO_PREALLOC);
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
 } manual_blacklist_map SEC(".maps");
 
 struct {
@@ -32,8 +47,8 @@ struct {
   __type(key, struct ipv6_lpm_key); // IPv6
   __type(value, __u32);
   __uint(map_flags, BPF_F_NO_PREALLOC);
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
 } manual_blacklist6_map SEC(".maps");
-
 
 struct flood_tracker {
   __u64 timestamp;
@@ -43,23 +58,25 @@ struct flood_tracker {
 struct {
   __uint(type, BPF_MAP_TYPE_LRU_HASH);
   __uint(max_entries, 10000);
-  __type(key, __u32); 
+  __type(key, __u32);
   __type(value, struct flood_tracker);
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
 } syn_flood_map SEC(".maps");
 
 struct {
   __uint(type, BPF_MAP_TYPE_LRU_HASH);
   __uint(max_entries, 10000);
-  __type(key, __u32); 
+  __type(key, __u32);
   __type(value, struct flood_tracker);
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
 } udp_flood_map SEC(".maps");
-
 
 struct {
   __uint(type, BPF_MAP_TYPE_LRU_HASH);
   __uint(max_entries, 10000);
-  __type(key, __u64); 
+  __type(key, __u64);
   __type(value, struct flood_tracker);
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
 } syn6_flood_map SEC(".maps");
 
 struct {
@@ -67,8 +84,8 @@ struct {
   __uint(max_entries, 10000);
   __type(key, __u64); // IPv6 source /64
   __type(value, struct flood_tracker);
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
 } udp6_flood_map SEC(".maps");
-
 
 struct connection_key {
   __be32 src_ip;
@@ -98,6 +115,7 @@ struct {
   __uint(max_entries, 65536);
   __type(key, struct connection_key);
   __type(value, struct connection_state);
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
 } ct_map SEC(".maps");
 
 struct {
@@ -105,6 +123,7 @@ struct {
   __uint(max_entries, 65536);
   __type(key, struct connection_key6);
   __type(value, struct connection_state);
+  __uint(pinning, LIBBPF_PIN_BY_NAME);
 } ct6_map SEC(".maps");
 
 #endif

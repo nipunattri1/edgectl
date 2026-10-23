@@ -1,0 +1,22 @@
+# edgectl configuration
+# Copy to /etc/edgectl/edgectl.yaml or use --config flag
+
+interface:
+  device: "enp7s0"        # Network interface to protect (required for attach)
+  mode: "generic"    # XDP mode: auto | generic | driver | native | offload
+
+rules:
+  block_proto: []   # Protocols to block: icmp, igmp, tcp, udp, gre, esp, ah, icmpv6
+  default: "allow" # allow | disallow - default action for unparseable packets
+
+ddos:
+  enable: false
+  syn_rate_limit: 100    # Max SYN packets/sec per source IPv4 or /64 IPv6
+  udp_rate_limit: 1000   # Max UDP packets/sec per source IPv4 or /64 IPv6
+
+conn_track:
+  enable: true
+  udp_timeout_ns: 30000000000  # UDP connection timeout (30s)
+
+pin_dir: "/sys/fs/bpf/edgectl"  # bpffs directory for pinned maps/links
+log_level: "info"                # debug | info | warn | error

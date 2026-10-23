@@ -1,0 +1,16 @@
+interface:
+  device: enp7s0
+  mode: generic
+
+rules:
+  block_proto: [icmpv6]
+  default: disallow
+
+ddos:
+  syn_rate_limit: 100
+  udp_rate_limit: 1000
+
+conn_track:
+  enable: true
+  udp_timeout_ns: 30000000000
+

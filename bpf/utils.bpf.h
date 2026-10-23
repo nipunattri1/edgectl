@@ -2,7 +2,6 @@
 #define __HELPERS_BPF_H_
 
 #include "../include/vmlinux.h"
-#include "../include/common.h"
 #include "maps.bpf.h"
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
@@ -217,6 +216,9 @@ static __always_inline int is_blacklisted(struct packet_headers *hdr) {
 
 static __always_inline int rate_limit_exceeded(void *map, const void *key,
                                                __u32 limit) {
+  if (limit == 0)
+    return 0;
+
   __u64 now = bpf_ktime_get_ns();
   struct flood_tracker *tracker = bpf_map_lookup_elem(map, key);
 
