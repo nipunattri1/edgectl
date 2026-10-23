@@ -1,232 +1,225 @@
-# eBPF XDP & TC Firewall
+# Edgewall (edgectl)
 
-High-performance, kernel-space Linux firewall leveraging **eBPF (Extended Berkeley Packet Filter)**, **XDP (eXpress Data Path)**, and **TC (Traffic Control)**, with full **IPv4 and IPv6** support.
-
-This project filters packets at the driver/kernel boundary before SKB allocation for maximum efficiency, protecting systems against DDoS attacks, blocking specific CIDR subnets, and managing stateful connection tracking.
+Edgewall is a high-performance eBPF-driven network firewall and connection tracking engine for Linux systems. Designed to operate directly within the kernel network path via XDP (eXpress Data Path) and Traffic Control (TC) hooks, Edgewall provides low-latency packet filtering, stateful connection tracking, dynamically configurable IP/subnet blocking, and automated volumetric flood protection.
 
 ---
 
-## Key Features
+## Features
 
-* **Dual-Stack (IPv4 + IPv6):** Both address families are parsed, filtered, rate-limited and tracked, including IPv6 extension headers and fragments.
-* **XDP Packet Filtering:** Ultra-fast drop logic executed directly at the network driver layer.
-* **LPM Subnet Blacklisting:** Dynamic IPv4 and IPv6 prefix blacklisting using Longest Prefix Match (`BPF_MAP_TYPE_LPM_TRIE`).
-* **DDoS Mitigation:** Rate-limiting for TCP SYN and UDP flood attacks using atomic counter tracking. IPv4 is tracked per source address, IPv6 per source `/64`.
-* **Stateful Connection Tracking:** Ingress/Egress packet matching via TC programs for dynamic session monitoring and automatic UDP session timeouts.
-* **Hot Configuration Reloading:** Dynamic configuration parsing via INI files without restarting or detaching kernel components.
-
----
-
-## Project Structure
-
-```
-.
-├── config/
-│   └── config.ini         # Firewall operational parameters & thresholds
-├── include/
-│   ├── common.h           # Shared structures (FirewallConfig, IPv4 LPM key, pin paths)
-│   ├── ini.h              # INI parser library header
-│   └── vmlinux.h          # BPF kernel type definitions
-├── bpf/
-│   ├── firewall.bpf.c     # eBPF kernel programs (XDP, TC Ingress/Egress)
-│   ├── maps.bpf.h         # BPF map definitions (LPM tries, LRU hashes, arrays)
-│   └── utils.bpf.h        # Header parsing (IPv4/IPv6), ACL lookup, flood checks
-├── user/
-│   ├── main.c             # Userspace CLI manager (command dispatch, IPv4/IPv6 CIDR parsing)
-│   ├── attach.c           # Load, attach and pin programs/maps
-│   ├── detach.c           # Unload and unpin
-│   ├── reload.c           # Hot config reload and TC toggle
-│   ├── blacklist.c        # Blacklist management and listing
-│   ├── firewall.h         # Userspace API declarations, struct ip_net, ipv6_lpm_key
-│   ├── config.h           # INI file parsing logic and handlers
-│   └── internal.h         # Internal helpers
-├── build/                 # Build artifacts
-└── README.md
-```
-
-> **Keep in sync:** `struct ipv6_lpm_key` is defined in both `bpf/maps.bpf.h` (kernel) and `user/firewall.h` (userspace). The two definitions must stay identical.
-
----
-
-## Configuration (`config/config.ini`)
-
-Configure interface attachment, protocol blocks, DDoS rate limits, and connection tracking parameters:
-
-```ini
-[interface]
-device = eth0
-
-[rules]
-# Comma-separated list: tcp, udp, icmp, icmpv6
-block_proto = icmp
-# allow | deny  (policy for packets that cannot be parsed)
-default = allow
-
-[ddos]
-# Maximum allowed packets per second per source
-# (per IPv4 address, or per IPv6 /64 prefix)
-syn_rate_limit = 100
-udp_rate_limit = 1000
-
-[conn_track]
-enable = true
-# UDP connection timeout in nanoseconds (default: 30s)
-udp_timeout_ns = 30000000000
-
-```
-
-> **Warning:** blocking `icmpv6` breaks IPv6 neighbor discovery and router advertisements, which will typically cut off IPv6 connectivity on the interface.
-
----
-
-## Building the Project
-
-### Prerequisites
-
-* **Linux Kernel:** 5.4 or higher with eBPF and XDP support enabled.
-* **Compiler:** `clang` and `llvm` (v11+ recommended).
-* **Dependencies:** `libbpf-dev`, `libelf-dev`, `zlib1g-dev`, `iproute2`.
-
-### Build Commands
-
-```bash
-# Compile eBPF byte-code and userspace binary
-make all
-
-# Clean build artifacts
-make clean
-
-```
-
----
-
-## Usage & CLI Commands
-
-> **Note:** Managing eBPF programs and network hooks requires **root (`sudo`) privileges**.
-
-### 1. Management Commands
-
-* **Attach the Firewall:** Loads BPF maps, attaches XDP to the interface, and registers TC filters.
-```bash
-sudo build/cli attach
-
-```
-
-
-* **Reload Configuration:** Updates running parameters (rate limits, blocked protocols) on-the-fly.
-```bash
-sudo build/cli reload
-
-```
-
-
-* **Detach the Firewall:** Removes XDP/TC hooks and unloads BPF maps from the kernel.
-```bash
-sudo build/cli detach
-
-```
-
-
-
----
-
-### 2. Manual IP/Subnet Blacklisting
-
-The firewall uses LPM Trie maps (one per address family), allowing you to block single hosts or entire network subnets. The address family is detected automatically from the argument. If no prefix is given, `/32` (IPv4) or `/128` (IPv6) is assumed.
-
-| Family | Valid prefix range |
-|--------|--------------------|
-| IPv4   | `/0` – `/32`       |
-| IPv6   | `/0` – `/128`      |
-
-* **Block an IP / Subnet:**
-```bash
-sudo build/cli block 192.168.1.50/32
-sudo build/cli block 10.0.0.0/16
-sudo build/cli block 2001:db8::1/128
-sudo build/cli block 2001:db8:abcd::/48
-
-```
-
-
-* **Unblock an IP / Subnet:**
-```bash
-sudo build/cli unblock 192.168.1.50/32
-sudo build/cli unblock 10.0.0.0/16
-sudo build/cli unblock 2001:db8:abcd::/48
-```
-
-
-* **List Currently Blocked Networks (IPv4 and IPv6):**
-```bash
-sudo build/cli list
-```
-
-
+- **XDP Packet Filtering**: Drops unauthorized network traffic early at the network interface layer to maximize packet processing throughput and minimize CPU overhead.
+- **TC Stateful Inspection**: Implements stateful connection tracking at the Traffic Control ingress and egress layers for TCP and UDP flows.
+- **LPM Tries for IP/Subnet Blocking**: Efficient Longest Prefix Match (LPM) trie lookups supporting both IPv4 and IPv6 CIDR blocklists.
+- **DoS/DDoS Protection**: Kernel-side rate checks to detect and drop TCP SYN flood and UDP flood attacks in real time.
+- **Dynamic Policy Reloads**: Update firewall policies and dynamic configuration on the fly without interrupting active kernel attachments or dropping packets.
+- **CLI Management**: Complete Go-based command line utility (`edgectl`) to manage pinned maps, rule sets, state inspections, and BPF link lifecycles.
 
 ---
 
 ## Architecture Overview
 
-1. **XDP Hook (`SEC("xdp")`):**
-* Inspects Ethernet, IPv4/IPv6, TCP, and UDP headers. For IPv6 it walks the extension header chain (hop-by-hop, routing, destination options, fragment, AH; up to 8 headers) to find the real upper-layer protocol.
-* Non-first IPv4 and IPv6 fragments are treated as having no L4 header.
-* Checks `block_mask` against the upper-layer protocol to drop specified protocols immediately.
-* Performs an LPM lookup in `manual_blacklist_map` (IPv4) or `manual_blacklist6_map` (IPv6) to drop blacklisted sources.
-* Tracks and drops sources exceeding `syn_rate_limit` or `udp_rate_limit` (per IPv4 address, or per IPv6 `/64`).
-* Packets that cannot be parsed (malformed, unsupported EtherType such as ARP or VLAN-tagged frames, or more than 8 IPv6 extension headers) follow the `default` policy.
+Edgewall is split into a kernel-space eBPF processing pipeline and a user-space control subsystem:
 
+1. **Kernel Space (`bpf/`)**
+   - `xdp_firewall`: Early packet filtering, protocol mask checks, LPM trie lookup for blocked subnets, and flood detection.
+   - `handle_egress`: Inspects outbound traffic to populate stateful connection tracking maps (`ct_map` and `ct6_map`).
+   - `handle_ingress`: Validates incoming packets against existing stateful connection records, automatically refreshing active flows or dropping untracked inbound attempts.
 
-2. **TC Egress Hook (`SEC("tc/egress")`):**
-* Intercepts outgoing stateful TCP/UDP packets.
-* Populates the connection tracking map (`ct_map` for IPv4, `ct6_map` for IPv6) with tuple metadata (`src_ip`, `dst_ip`, `src_port`, `dst_port`, `proto`).
+2. **User Space (`cmd/`, `internal/`, `user/`)**
+   - **Go Control Subsystem (`cmd/`, `internal/`)**: Built on `cilium/ebpf` to handle BPF skeleton generation, map pinning, configuration parsing, and CLI interactions.
+   - **C Control Binary (`user/`)**: Alternative lightweight C-based utility for managing map states and skeleton lifecycles using `libbpf`.
 
+---
 
-3. **TC Ingress Hook (`SEC("tc/ingress")`):**
-* Matches incoming packets against existing sessions in `ct_map` / `ct6_map`.
-* Enforces `udp_timeout_ns` session expiration logic.
-* Drops non-tracked stateful ingress TCP/UDP traffic (`TC_ACT_SHOT`).
-* Non-TCP/UDP traffic (including ICMPv6, which IPv6 needs for neighbor discovery and path MTU discovery) is not subject to connection tracking and passes.
+## Prerequisites
 
-### BPF Maps
+- **OS**: Linux kernel version 5.8 or higher (supports BPF ring buffers, LPM tries, and pinned links).
+- **Toolchain Requirements**:
+  - `clang` and `llvm` (version 12+)
+  - `libbpf-dev` / `libbpf` headers
+  - `go` (version 1.20+)
+  - `make` or `just`
+  - `bpftool` (optional, for header generation)
 
-| Map | Type | Key | Purpose |
-|-----|------|-----|---------|
-| `config_map` | ARRAY | `u32` | Runtime configuration |
-| `manual_blacklist_map` | LPM_TRIE | `ipv4_lpm_key` | IPv4 blocklist |
-| `manual_blacklist6_map` | LPM_TRIE | `ipv6_lpm_key` | IPv6 blocklist |
-| `syn_flood_map` / `udp_flood_map` | LRU_HASH | IPv4 address | IPv4 rate limiting |
-| `syn6_flood_map` / `udp6_flood_map` | LRU_HASH | IPv6 `/64` prefix | IPv6 rate limiting |
-| `ct_map` | LRU_HASH | `connection_key` | IPv4 connection tracking |
-| `ct6_map` | LRU_HASH | `connection_key6` | IPv6 connection tracking |
+---
 
-All maps are pinned under `PIN_DIR` so the CLI can manage rules while the firewall is running.
+## Installation and Building
 
+Clone the repository and build the project artifacts:
 
-## pending stuff (extra, not in task)
-**1. Dynamic Rule Management & Policy Engine**
+```bash
+git clone https://github.com/your-org/edgewall.git
+cd edgewall
+```
 
-* **Port-Based Rules:** Expand XDP filtering to block or allow specific destination ports or port ranges alongside protocol checks.
-* **Geofencing / Country Blocking:** Integrate MaxMind GeoIP maps directly into eBPF to drop traffic originating from specific ASN or country codes.
-* **Dynamic Whitelisting:** Implement a priority-based rule set where whitelisted IPs bypass all rate limits and packet drops.
+### Build using Make
 
-**2. Advanced Security & Anomaly Detection**
+```bash
+# Build eBPF programs and Go CLI binary
+make build
 
-* **TCP SYN Cookies:** Implement stateless SYN cookie generation inside XDP to handle massive SYN floods without exhausting map memory.
-* **Deep Packet Inspection (DPI):** Parse HTTP headers or DNS queries in XDP/TC to block known malicious user-agents or DNS amplification vectors.
-* **Connection State Machine Expansion:** Track full TCP state transitions (`SYN`, `SYN-ACK`, `ESTABLISHED`, `FIN`, `RST`) rather than binary timestamp tracking.
-* **ICMPv6 Filtering:** Allow-list essential ICMPv6 types (neighbor discovery, packet-too-big) while filtering the rest, instead of an all-or-nothing `icmpv6` block.
-* **VLAN / ARP Handling:** Parse 802.1Q tags and pass or track ARP explicitly rather than relying on the `default` policy.
+# Install binary to system path
+sudo make install
+```
 
-**3. Observability & Monitoring**
+### Build using Just
 
-* **Prometheus Metrics Exporter:** Expose kernel counters via an HTTP `/metrics` endpoint for real-time monitoring of drop reasons, throughput, and active connections.
-* **Grafana Dashboard:** Build a pre-configured Grafana dashboard visualizing live network traffic, drop rates per vector, and top offender IPs.
-* **eBPF Ring Buffer Event Logging:** Replace standard `bpf_printk` debug calls with high-performance `BPF_MAP_TYPE_RINGBUF` to send blocked packet metadata to user space in real time.
+```bash
+just build
+```
 
-**4. Architecture & Production Readiness**
+The generated CLI executable will be placed in `build/edgewall` or installed to `/usr/local/bin/edgectl`.
 
-* **CO-RE (Compile Once – Run Everywhere):** Migrate to BPF CO-RE using `libbpf` and `bpftool` so the binary runs across different kernel versions without needing kernel headers locally.
-* **ebpf/xdp Native & Offload Support:** Add CLI options to force `XDP_FLAGS_SKB_MODE` (generic), `XDP_FLAGS_DRV_MODE` (native driver), or hardware offload onto supported NICs.
-* **REST API / gRPC Controller:** Build a daemon allowing external microservices or orchestration tools to update firewall rules programmatically.
-* **Project Restructure:** Split kernel (`bpf/`) and userspace (`src/`) code, move shared types and pin paths into a single `include/shared/` header, and add `BPF_PROG_TEST_RUN` tests for the parsers.
+---
+
+## Usage Guide
+
+`edgectl` requires root privileges (or `CAP_BPF` and `CAP_NET_ADMIN`) to attach programs and manipulate kernel maps.
+
+### Command Structure
+
+```text
+eBPF firewall control
+
+Usage:
+  edgectl [command]
+
+Available Commands:
+  attach      Load and attach the firewall
+  block       Block an IP or subnet
+  detach      Detach firewall and cleanup
+  help        Help about any command
+  list        List blocked IPs/subnets
+  reload      Reload configuration from config file
+  unblock     Unblock an IP or subnet
+
+Flags:
+      --config string       config file (default: /etc/edgectl/edgectl.yaml)
+  -h, --help                help for edgectl
+      --log-level string    debug | info | warn | error (default "info")
+      --pin-dir string      bpffs directory for pinned links and maps (default "/sys/fs/bpf/edgectl")
+  -v, --version             version for edgectl
+```
+
+### Common Workflows
+
+1. **Attach the Firewall**
+
+   Attach XDP and TC programs to a specific network interface:
+
+   ```bash
+   sudo edgectl attach --config config/config.yaml
+   ```
+
+2. **Block an IP Address or Subnet**
+
+   Dynamically insert IPv4/IPv6 addresses or CIDRs into the LPM trie map:
+
+   ```bash
+   sudo edgectl block 192.168.1.50
+   sudo edgectl block 10.0.0.0/8
+   sudo edgectl block 2001:db8::/32
+   ```
+
+3. **List Active Block Rules**
+
+   ```bash
+   sudo edgectl list
+   ```
+
+4. **Unblock an IP Address or Subnet**
+
+   ```bash
+   sudo edgectl unblock 192.168.1.50
+   ```
+
+5. **Reload Runtime Configuration**
+
+   Update settings in `/etc/edgectl/edgectl.yaml` and reload parameters directly into BPF maps:
+
+   ```bash
+   sudo edgectl reload
+   ```
+
+6. **Detach and Cleanup**
+
+   Remove BPF programs from interfaces and unpin maps:
+
+   ```bash
+   sudo edgectl detach
+   ```
+
+---
+
+## Configuration
+
+Configuration files use standard YAML syntax. A default configuration template is available in `config/config.yaml`:
+
+```yaml
+# edgectl configuration
+# Copy to /etc/edgectl/edgectl.yaml or use --config flag
+
+interface:
+  device: "enp7s0"        # Network interface to protect (required for attach)
+  mode: "generic"    # XDP mode: auto | generic | driver | native | offload
+
+rules:
+  block_proto: []   # Protocols to block: icmp, igmp, tcp, udp, gre, esp, ah, icmpv6
+  default: "allow" # allow | disallow - default action for unparseable packets
+
+ddos:
+  enable: false
+  syn_rate_limit: 100    # Max SYN packets/sec per source IPv4 or /64 IPv6
+  udp_rate_limit: 1000   # Max UDP packets/sec per source IPv4 or /64 IPv6
+
+conn_track:
+  enable: true
+  udp_timeout_ns: 30000000000  # UDP connection timeout (30s)
+
+pin_dir: "/sys/fs/bpf/edgectl"  # bpffs directory for pinned maps/links
+log_level: "info"                # debug | info | warn | error
+```
+
+---
+
+## Development and Testing
+
+### Re-generating eBPF Bindings
+
+If you make modifications to the C eBPF code inside `bpf/`:
+
+```bash
+# Rebuild eBPF bytecode and regenerate Go skeletons
+go generate ./...
+```
+
+### Running Tests
+
+Run unit tests across the Go control modules:
+
+```bash
+go test -v ./...
+```
+
+---
+
+## Project Directory Layout
+
+```text
+.
+├── bpf/                # C eBPF source code (XDP, TC programs, maps, helpers)
+├── build/              # Output binary build path
+├── cmd/                # Cobra CLI commands (attach, block, detach, list, etc.)
+├── config/             # YAML configuration templates
+├── docs/               # Technical documentation
+├── include/            # Kernel headers (vmlinux.h)
+├── internal/           # Internal Go packages (config loader, BPF map management, code generator)
+├── user/               # Legacy C-based controller and headers
+├── Makefile            # Build recipes
+└── main.go             # CLI entry point
+```
+
+---
+
+## License
+
+The eBPF kernel programs (`bpf/`) are licensed under the GNU General Public License v2.0 (GPL-2.0). The user-space CLI components are provided under the MIT License.
