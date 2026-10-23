@@ -1,5 +1,6 @@
 interface:
   device: enp0s20f0u4
+  mode: native
 
 rules:
   block_proto: [icmp]
@@ -12,3 +13,4 @@ ddos:
 conn_track:
   enable: true
   udp_timeout_ns: 30000000000
+

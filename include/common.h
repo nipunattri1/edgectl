@@ -32,7 +32,7 @@
 
 typedef struct {
   char device[16];
-  __u8 block_mask;
+  __u64 block_mask;
   __u8 enable_tc;
   __u8 default_allow;
   __u32 syn_rate_limit;
