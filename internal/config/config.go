@@ -5,7 +5,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/nipunattri1/xdp-firewall/internal/gen"
+	"github.com/nipunattri1/edgectl/internal/gen"
 )
 
 type Config struct {
@@ -44,8 +44,8 @@ var protocolNumbers = map[string]uint8{
 }
 
 // ToBpfConfig converts the CLI config into the FirewallConfig map value.
-func (cfg *Config) ToBpfConfig() (gen.EdgeWallFirewallConfig, error) {
-	var fw gen.EdgeWallFirewallConfig
+func (cfg *Config) ToBpfConfig() (gen.EdgectlFirewallConfig, error) {
+	var fw gen.EdgectlFirewallConfig
 
 	if cfg.Interface.Device == "" {
 		return fw, fmt.Errorf("interface.device is required")

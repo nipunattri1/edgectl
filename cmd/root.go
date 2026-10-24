@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/nipunattri1/xdp-firewall/internal/config"
+	"github.com/nipunattri1/edgectl/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

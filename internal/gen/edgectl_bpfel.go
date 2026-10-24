@@ -13,7 +13,7 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-type EdgeWallConnectionKey struct {
+type EdgectlConnectionKey struct {
 	_       structs.HostLayout
 	SrcIp   uint32
 	DstIp   uint32
@@ -23,7 +23,7 @@ type EdgeWallConnectionKey struct {
 	Pad     [3]uint8
 }
 
-type EdgeWallConnectionKey6 struct {
+type EdgectlConnectionKey6 struct {
 	_       structs.HostLayout
 	SrcIp   [16]uint8
 	DstIp   [16]uint8
@@ -33,14 +33,14 @@ type EdgeWallConnectionKey6 struct {
 	Pad     [3]uint8
 }
 
-type EdgeWallConnectionState struct {
+type EdgectlConnectionState struct {
 	_          structs.HostLayout
 	LastSeenNs uint64
 	State      uint8
 	_          [7]byte
 }
 
-type EdgeWallFirewallConfig struct {
+type EdgectlFirewallConfig struct {
 	_            structs.HostLayout
 	Device       [16]int8
 	BlockMask    uint64
@@ -53,20 +53,20 @@ type EdgeWallFirewallConfig struct {
 	UdpTimeoutNs uint64
 }
 
-type EdgeWallFloodTracker struct {
+type EdgectlFloodTracker struct {
 	_         structs.HostLayout
 	Timestamp uint64
 	Count     uint32
 	_         [4]byte
 }
 
-type EdgeWallIpv4LpmKey struct {
+type EdgectlIpv4LpmKey struct {
 	_         structs.HostLayout
 	Prefixlen uint32
 	Ip        uint32
 }
 
-type EdgeWallIpv6LpmKey struct {
+type EdgectlIpv6LpmKey struct {
 	_         structs.HostLayout
 	Prefixlen uint32
 	Addr      [16]uint8
@@ -76,42 +76,42 @@ type EdgeWallIpv6LpmKey struct {
 //
 // Used for safe lookups in a Collection or CollectionSpec.
 const (
-	EdgeWallMapConfigMap           = "config_map"
-	EdgeWallMapCt6Map              = "ct6_map"
-	EdgeWallMapCtMap               = "ct_map"
-	EdgeWallMapManualBlacklist6Map = "manual_blacklist6_map"
-	EdgeWallMapManualBlacklistMap  = "manual_blacklist_map"
-	EdgeWallMapSyn6FloodMap        = "syn6_flood_map"
-	EdgeWallMapSynFloodMap         = "syn_flood_map"
-	EdgeWallMapUdp6FloodMap        = "udp6_flood_map"
-	EdgeWallMapUdpFloodMap         = "udp_flood_map"
-	EdgeWallProgHandleEgress       = "handle_egress"
-	EdgeWallProgHandleIngress      = "handle_ingress"
-	EdgeWallProgXdpFirewall        = "xdp_firewall"
+	EdgectlMapConfigMap           = "config_map"
+	EdgectlMapCt6Map              = "ct6_map"
+	EdgectlMapCtMap               = "ct_map"
+	EdgectlMapManualBlacklist6Map = "manual_blacklist6_map"
+	EdgectlMapManualBlacklistMap  = "manual_blacklist_map"
+	EdgectlMapSyn6FloodMap        = "syn6_flood_map"
+	EdgectlMapSynFloodMap         = "syn_flood_map"
+	EdgectlMapUdp6FloodMap        = "udp6_flood_map"
+	EdgectlMapUdpFloodMap         = "udp_flood_map"
+	EdgectlProgHandleEgress       = "handle_egress"
+	EdgectlProgHandleIngress      = "handle_ingress"
+	EdgectlProgXdpFirewall        = "xdp_firewall"
 )
 
-// LoadEdgeWall returns the embedded CollectionSpec for EdgeWall.
-func LoadEdgeWall() (*ebpf.CollectionSpec, error) {
-	reader := bytes.NewReader(_EdgeWallBytes)
+// LoadEdgectl returns the embedded CollectionSpec for Edgectl.
+func LoadEdgectl() (*ebpf.CollectionSpec, error) {
+	reader := bytes.NewReader(_EdgectlBytes)
 	spec, err := ebpf.LoadCollectionSpecFromReader(reader)
 	if err != nil {
-		return nil, fmt.Errorf("can't load EdgeWall: %w", err)
+		return nil, fmt.Errorf("can't load Edgectl: %w", err)
 	}
 
 	return spec, err
 }
 
-// LoadEdgeWallObjects loads EdgeWall and converts it into a struct.
+// LoadEdgectlObjects loads Edgectl and converts it into a struct.
 //
 // The following types are suitable as obj argument:
 //
-//	*EdgeWallObjects
-//	*EdgeWallPrograms
-//	*EdgeWallMaps
+//	*EdgectlObjects
+//	*EdgectlPrograms
+//	*EdgectlMaps
 //
 // See ebpf.CollectionSpec.LoadAndAssign documentation for details.
-func LoadEdgeWallObjects(obj any, opts *ebpf.CollectionOptions) error {
-	spec, err := LoadEdgeWall()
+func LoadEdgectlObjects(obj any, opts *ebpf.CollectionOptions) error {
+	spec, err := LoadEdgectl()
 	if err != nil {
 		return err
 	}
@@ -119,28 +119,28 @@ func LoadEdgeWallObjects(obj any, opts *ebpf.CollectionOptions) error {
 	return spec.LoadAndAssign(obj, opts)
 }
 
-// EdgeWallSpecs contains maps and programs before they are loaded into the kernel.
+// EdgectlSpecs contains maps and programs before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type EdgeWallSpecs struct {
-	EdgeWallProgramSpecs
-	EdgeWallMapSpecs
-	EdgeWallVariableSpecs
+type EdgectlSpecs struct {
+	EdgectlProgramSpecs
+	EdgectlMapSpecs
+	EdgectlVariableSpecs
 }
 
-// EdgeWallProgramSpecs contains programs before they are loaded into the kernel.
+// EdgectlProgramSpecs contains programs before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type EdgeWallProgramSpecs struct {
+type EdgectlProgramSpecs struct {
 	HandleEgress  *ebpf.ProgramSpec `ebpf:"handle_egress"`
 	HandleIngress *ebpf.ProgramSpec `ebpf:"handle_ingress"`
 	XdpFirewall   *ebpf.ProgramSpec `ebpf:"xdp_firewall"`
 }
 
-// EdgeWallMapSpecs contains maps before they are loaded into the kernel.
+// EdgectlMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type EdgeWallMapSpecs struct {
+type EdgectlMapSpecs struct {
 	ConfigMap           *ebpf.MapSpec `ebpf:"config_map"`
 	Ct6Map              *ebpf.MapSpec `ebpf:"ct6_map"`
 	CtMap               *ebpf.MapSpec `ebpf:"ct_map"`
@@ -152,32 +152,32 @@ type EdgeWallMapSpecs struct {
 	UdpFloodMap         *ebpf.MapSpec `ebpf:"udp_flood_map"`
 }
 
-// EdgeWallVariableSpecs contains global variables before they are loaded into the kernel.
+// EdgectlVariableSpecs contains global variables before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type EdgeWallVariableSpecs struct {
+type EdgectlVariableSpecs struct {
 }
 
-// EdgeWallObjects contains all objects after they have been loaded into the kernel.
+// EdgectlObjects contains all objects after they have been loaded into the kernel.
 //
-// It can be passed to LoadEdgeWallObjects or ebpf.CollectionSpec.LoadAndAssign.
-type EdgeWallObjects struct {
-	EdgeWallPrograms
-	EdgeWallMaps
-	EdgeWallVariables
+// It can be passed to LoadEdgectlObjects or ebpf.CollectionSpec.LoadAndAssign.
+type EdgectlObjects struct {
+	EdgectlPrograms
+	EdgectlMaps
+	EdgectlVariables
 }
 
-func (o *EdgeWallObjects) Close() error {
-	return _EdgeWallClose(
-		&o.EdgeWallPrograms,
-		&o.EdgeWallMaps,
+func (o *EdgectlObjects) Close() error {
+	return _EdgectlClose(
+		&o.EdgectlPrograms,
+		&o.EdgectlMaps,
 	)
 }
 
-// EdgeWallMaps contains all maps after they have been loaded into the kernel.
+// EdgectlMaps contains all maps after they have been loaded into the kernel.
 //
-// It can be passed to LoadEdgeWallObjects or ebpf.CollectionSpec.LoadAndAssign.
-type EdgeWallMaps struct {
+// It can be passed to LoadEdgectlObjects or ebpf.CollectionSpec.LoadAndAssign.
+type EdgectlMaps struct {
 	ConfigMap           *ebpf.Map `ebpf:"config_map"`
 	Ct6Map              *ebpf.Map `ebpf:"ct6_map"`
 	CtMap               *ebpf.Map `ebpf:"ct_map"`
@@ -189,8 +189,8 @@ type EdgeWallMaps struct {
 	UdpFloodMap         *ebpf.Map `ebpf:"udp_flood_map"`
 }
 
-func (m *EdgeWallMaps) Close() error {
-	return _EdgeWallClose(
+func (m *EdgectlMaps) Close() error {
+	return _EdgectlClose(
 		m.ConfigMap,
 		m.Ct6Map,
 		m.CtMap,
@@ -203,30 +203,30 @@ func (m *EdgeWallMaps) Close() error {
 	)
 }
 
-// EdgeWallVariables contains all global variables after they have been loaded into the kernel.
+// EdgectlVariables contains all global variables after they have been loaded into the kernel.
 //
-// It can be passed to LoadEdgeWallObjects or ebpf.CollectionSpec.LoadAndAssign.
-type EdgeWallVariables struct {
+// It can be passed to LoadEdgectlObjects or ebpf.CollectionSpec.LoadAndAssign.
+type EdgectlVariables struct {
 }
 
-// EdgeWallPrograms contains all programs after they have been loaded into the kernel.
+// EdgectlPrograms contains all programs after they have been loaded into the kernel.
 //
-// It can be passed to LoadEdgeWallObjects or ebpf.CollectionSpec.LoadAndAssign.
-type EdgeWallPrograms struct {
+// It can be passed to LoadEdgectlObjects or ebpf.CollectionSpec.LoadAndAssign.
+type EdgectlPrograms struct {
 	HandleEgress  *ebpf.Program `ebpf:"handle_egress"`
 	HandleIngress *ebpf.Program `ebpf:"handle_ingress"`
 	XdpFirewall   *ebpf.Program `ebpf:"xdp_firewall"`
 }
 
-func (p *EdgeWallPrograms) Close() error {
-	return _EdgeWallClose(
+func (p *EdgectlPrograms) Close() error {
+	return _EdgectlClose(
 		p.HandleEgress,
 		p.HandleIngress,
 		p.XdpFirewall,
 	)
 }
 
-func _EdgeWallClose(closers ...io.Closer) error {
+func _EdgectlClose(closers ...io.Closer) error {
 	for _, closer := range closers {
 		if err := closer.Close(); err != nil {
 			return err
@@ -237,5 +237,5 @@ func _EdgeWallClose(closers ...io.Closer) error {
 
 // Do not access this directly.
 //
-//go:embed edgewall_bpfel.o
-var _EdgeWallBytes []byte
+//go:embed edgectl_bpfel.o
+var _EdgectlBytes []byte

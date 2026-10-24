@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/nipunattri1/xdp-firewall/internal/bpf"
+	"github.com/nipunattri1/edgectl/internal/bpf"
 	"github.com/spf13/cobra"
 )
 

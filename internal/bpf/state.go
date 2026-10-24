@@ -10,8 +10,8 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
-	"github.com/nipunattri1/xdp-firewall/internal/config"
-	"github.com/nipunattri1/xdp-firewall/internal/gen"
+	"github.com/nipunattri1/edgectl/internal/config"
+	"github.com/nipunattri1/edgectl/internal/gen"
 )
 
 func Attach(cfg config.Config) error {
@@ -34,12 +34,12 @@ func Attach(cfg config.Config) error {
 		return fmt.Errorf("pin dir: %w", err)
 	}
 
-	spec, err := gen.LoadEdgeWall()
+	spec, err := gen.LoadEdgectl()
 	if err != nil {
 		return fmt.Errorf("load spec: %w", err)
 	}
 
-	objs := gen.EdgeWallObjects{}
+	objs := gen.EdgectlObjects{}
 	collOpts := &ebpf.CollectionOptions{
 		Programs: ebpf.ProgramOptions{
 			LogLevel: ebpf.LogLevelBranch | ebpf.LogLevelStats,
@@ -153,7 +153,7 @@ func ReloadConfig(cfg config.Config) error {
 		return fmt.Errorf("failed to convert config to ebpf map")
 	}
 
-	m, err := ebpf.LoadPinnedMap(filepath.Join(cfg.PinDir, gen.EdgeWallMapConfigMap), nil)
+	m, err := ebpf.LoadPinnedMap(filepath.Join(cfg.PinDir, gen.EdgectlMapConfigMap), nil)
 	if err != nil {
 		return fmt.Errorf("fetching map: %w", err)
 	}
@@ -170,13 +170,13 @@ type BlockedIP struct {
 func ListIPs(cfg config.Config) ([]BlockedIP, error) {
 	var result []BlockedIP
 
-	v4, err := listFamily(filepath.Join(cfg.PinDir, gen.EdgeWallMapManualBlacklistMap), "ipv4")
+	v4, err := listFamily(filepath.Join(cfg.PinDir, gen.EdgectlMapManualBlacklistMap), "ipv4")
 	if err != nil {
 		return nil, err
 	}
 	result = append(result, v4...)
 
-	v6, err := listFamily(filepath.Join(cfg.PinDir, gen.EdgeWallMapManualBlacklist6Map), "ipv6")
+	v6, err := listFamily(filepath.Join(cfg.PinDir, gen.EdgectlMapManualBlacklist6Map), "ipv6")
 	if err != nil {
 		return nil, err
 	}
@@ -236,14 +236,14 @@ func updateLPM(net *IPNet, val uint32, cfg config.Config) error {
 	var err error
 
 	if net.Family == "ipv4" {
-		path = filepath.Join(cfg.PinDir, gen.EdgeWallMapManualBlacklistMap)
+		path = filepath.Join(cfg.PinDir, gen.EdgectlMapManualBlacklistMap)
 		ip4 := net.IP.To4()
 		var ipBytes [4]byte
 		copy(ipBytes[:], ip4)
 		ipVal := binary.BigEndian.Uint32(ipBytes[:])
 
 		// Concrete type instead of `any`
-		key := gen.EdgeWallIpv4LpmKey{
+		key := gen.EdgectlIpv4LpmKey{
 			Prefixlen: uint32(net.PrefixLen),
 			Ip:        ipVal,
 		}
@@ -256,13 +256,13 @@ func updateLPM(net *IPNet, val uint32, cfg config.Config) error {
 
 		return mapFD.Update(&key, &val, ebpf.UpdateAny)
 	} else {
-		path = filepath.Join(cfg.PinDir, gen.EdgeWallMapManualBlacklist6Map)
+		path = filepath.Join(cfg.PinDir, gen.EdgectlMapManualBlacklist6Map)
 		ip6 := net.IP.To16()
 		var ipBytes [16]byte
 		copy(ipBytes[:], ip6)
 
 		// Concrete type instead of `any`
-		key := gen.EdgeWallIpv6LpmKey{
+		key := gen.EdgectlIpv6LpmKey{
 			Prefixlen: uint32(net.PrefixLen),
 			Addr:      ipBytes,
 		}
@@ -283,13 +283,13 @@ func deleteLPM(net *IPNet, cfg config.Config) error {
 	var err error
 
 	if net.Family == "ipv4" {
-		path = filepath.Join(cfg.PinDir, gen.EdgeWallMapManualBlacklistMap)
+		path = filepath.Join(cfg.PinDir, gen.EdgectlMapManualBlacklistMap)
 		ip4 := net.IP.To4()
 		var ipBytes [4]byte
 		copy(ipBytes[:], ip4)
 		ipVal := binary.BigEndian.Uint32(ipBytes[:])
 
-		key := gen.EdgeWallIpv4LpmKey{
+		key := gen.EdgectlIpv4LpmKey{
 			Prefixlen: uint32(net.PrefixLen),
 			Ip:        ipVal,
 		}
@@ -302,12 +302,12 @@ func deleteLPM(net *IPNet, cfg config.Config) error {
 
 		return mapFD.Delete(&key)
 	} else {
-		path = filepath.Join(cfg.PinDir, gen.EdgeWallMapManualBlacklist6Map)
+		path = filepath.Join(cfg.PinDir, gen.EdgectlMapManualBlacklist6Map)
 		ip6 := net.IP.To16()
 		var ipBytes [16]byte
 		copy(ipBytes[:], ip6)
 
-		key := gen.EdgeWallIpv6LpmKey{
+		key := gen.EdgectlIpv6LpmKey{
 			Prefixlen: uint32(net.PrefixLen),
 			Addr:      ipBytes,
 		}

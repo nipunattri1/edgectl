@@ -12,7 +12,7 @@ on:
 
 jobs:
   build:
-    name: Build edgewall
+    name: Build edgectl
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -41,13 +41,13 @@ jobs:
 
       - name: Verify version
         run: |
-          ./build/edgewall --version
+          ./build/edgectl --version
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: edgewall-linux-amd64
-          path: build/edgewall
+          name: edgectl-linux-amd64
+          path: build/edgectl
           retention-days: 7
 
       - name: Create Release
@@ -55,11 +55,11 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           tag_name: ${{ github.ref_name }}
-          name: edgewall ${{ github.ref_name }}
+          name: edgectl ${{ github.ref_name }}
           draft: false
           prerelease: false
           files: |
-            build/edgewall
+            build/edgectl
             config/edgectl.yaml.example
           generate_release_notes: true
 

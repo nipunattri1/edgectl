@@ -1,4 +1,4 @@
-module github.com/nipunattri1/xdp-firewall
+module github.com/nipunattri1/edgectl
 
 go 1.26.9
 
