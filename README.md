@@ -15,21 +15,6 @@ Edgewall is a high-performance eBPF-driven network firewall and connection track
 
 ---
 
-## Architecture Overview
-
-Edgewall is split into a kernel-space eBPF processing pipeline and a user-space control subsystem:
-
-1. **Kernel Space (`bpf/`)**
-   - `xdp_firewall`: Early packet filtering, protocol mask checks, LPM trie lookup for blocked subnets, and flood detection.
-   - `handle_egress`: Inspects outbound traffic to populate stateful connection tracking maps (`ct_map` and `ct6_map`).
-   - `handle_ingress`: Validates incoming packets against existing stateful connection records, automatically refreshing active flows or dropping untracked inbound attempts.
-
-2. **User Space (`cmd/`, `internal/`, `user/`)**
-   - **Go Control Subsystem (`cmd/`, `internal/`)**: Built on `cilium/ebpf` to handle BPF skeleton generation, map pinning, configuration parsing, and CLI interactions.
-   - **C Control Binary (`user/`)**: Alternative lightweight C-based utility for managing map states and skeleton lifecycles using `libbpf`.
-
----
-
 ## Prerequisites
 
 - **OS**: Linux kernel version 5.8 or higher (supports BPF ring buffers, LPM tries, and pinned links).
@@ -37,8 +22,8 @@ Edgewall is split into a kernel-space eBPF processing pipeline and a user-space 
   - `clang` and `llvm` (version 12+)
   - `libbpf-dev` / `libbpf` headers
   - `go` (version 1.20+)
-  - `make` or `just`
-  - `bpftool` (optional, for header generation)
+  - `just`
+  - `bpftool` (for header generation)
 
 ---
 
@@ -47,18 +32,8 @@ Edgewall is split into a kernel-space eBPF processing pipeline and a user-space 
 Clone the repository and build the project artifacts:
 
 ```bash
-git clone https://github.com/your-org/edgewall.git
+git clone https://github.com/nipunattri1/edgewall.git
 cd edgewall
-```
-
-### Build using Make
-
-```bash
-# Build eBPF programs and Go CLI binary
-make build
-
-# Install binary to system path
-sudo make install
 ```
 
 ### Build using Just
@@ -67,7 +42,7 @@ sudo make install
 just build
 ```
 
-The generated CLI executable will be placed in `build/edgewall` or installed to `/usr/local/bin/edgectl`.
+The generated CLI executable will be placed in `build/edgewall`.
 
 ---
 
@@ -115,7 +90,7 @@ Flags:
    Dynamically insert IPv4/IPv6 addresses or CIDRs into the LPM trie map:
 
    ```bash
-   sudo edgectl block 192.168.1.50
+   sudo edgectl block 192.168.1.50/32 # to block a specific IP
    sudo edgectl block 10.0.0.0/8
    sudo edgectl block 2001:db8::/32
    ```
@@ -189,7 +164,7 @@ If you make modifications to the C eBPF code inside `bpf/`:
 
 ```bash
 # Rebuild eBPF bytecode and regenerate Go skeletons
-go generate ./...
+just generate
 ```
 
 ### Running Tests
@@ -197,7 +172,7 @@ go generate ./...
 Run unit tests across the Go control modules:
 
 ```bash
-go test -v ./...
+just test
 ```
 
 ---
@@ -213,8 +188,7 @@ go test -v ./...
 ├── docs/               # Technical documentation
 ├── include/            # Kernel headers (vmlinux.h)
 ├── internal/           # Internal Go packages (config loader, BPF map management, code generator)
-├── user/               # Legacy C-based controller and headers
-├── Makefile            # Build recipes
+├── justfile            # Build recipes
 └── main.go             # CLI entry point
 ```
 
